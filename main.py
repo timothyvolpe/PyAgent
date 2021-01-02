@@ -22,36 +22,64 @@ import configparser
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import glob
 import pyagent
+import scrapy
+from scrapy.crawler import CrawlerProcess
 
 LOG_FILE = "output.log"
 
-root = logging.getLogger()
-root.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter("[%(asctime)s][%(threadName)12.12s][%(levelname)5.5s] %(message)s")
-
-# Output log file handler
-handler_log = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=5*1024*1024, backupCount=2, encoding=None, delay=0)
-handler_log.setLevel(logging.DEBUG)
-handler_log.setFormatter(log_formatter)
-root.addHandler(handler_log)
-
-# stderr handler
-handler_err = logging.StreamHandler(sys.stderr)
-handler_err.setLevel(logging.ERROR)
-handler_err.setFormatter(log_formatter)
-root.addHandler(handler_err)
-
-# Regular info handler
-handler_info = logging.StreamHandler(sys.stdout)
-handler_info.addFilter(lambda record: record.levelno == logging.INFO)
-root.addHandler(handler_info)
-
 logger = logging.getLogger(__name__)
+log_formatter = logging.Formatter("[%(asctime)s][%(threadName)12.12s][%(levelname)5.5s] %(message)s")
+handler_info = logging.StreamHandler(sys.stdout)
+regular_filter = None
 
 CONFIG_FILE = "options.ini"
+OUTPUT_DIR = "output"
+OUTPUT_CACHE_BASE = "scrape_results_*.json"
 
 scrape_website_list = []
+
+
+class RegularFilter(logging.Filter):
+    """
+    Filter for regular, non-verbose output
+    """
+    def filter(self, record):
+        return record.levelno == logging.INFO and "scrapy" not in record.name
+
+
+class VerboseFilter(logging.Filter):
+    """
+    Filter for verbose output
+    """
+    def filter(self, record):
+        return True
+
+
+def setup_logger():
+    global regular_filter
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    # Output log file handler
+    handler_log = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=5 * 1024 * 1024, backupCount=2, encoding=None,
+                                      delay=0)
+    handler_log.setLevel(logging.DEBUG)
+    handler_log.setFormatter(log_formatter)
+    root.addHandler(handler_log)
+
+    # stderr handler
+    handler_err = logging.StreamHandler(sys.stderr)
+    handler_err.setLevel(logging.ERROR)
+    handler_err.setFormatter(log_formatter)
+    root.addHandler(handler_err)
+
+    # Regular info handler
+    regular_filter = RegularFilter()
+    handler_info.addFilter(regular_filter)
+    root.addHandler(handler_info)
 
 
 def print_help() -> None:
@@ -79,7 +107,10 @@ def enable_verbose() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(log_formatter)
     handler.addFilter(lambda record: record.levelno == logging.DEBUG or record.levelno == logging.WARNING)
-    root.addHandler(handler)
+    logging.getLogger().addHandler(handler)
+
+    handler_info.removeFilter(regular_filter)
+    handler_info.addFilter(VerboseFilter())
 
     logger.debug("Using verbose output")
 
@@ -93,6 +124,49 @@ def perform_scrape() -> bool:
     logger.debug("Scraping the following sources: {0}".format(", ".join(scrape_website_list)))
 
     pyagent.init_sources()
+
+    # Get the most recent cache
+    cache_index = 0
+    if not os.path.isdir(OUTPUT_DIR):
+        logger.debug("Folder {0} does not exist, so it was created".format(OUTPUT_DIR))
+        os.makedirs(OUTPUT_DIR)
+    else:
+        cache_files = glob.glob(OUTPUT_DIR + "/" + OUTPUT_CACHE_BASE)
+        max_index = 0
+        for cache in cache_files:
+            cache = cache.split("\\")[1]
+            num_pos = OUTPUT_CACHE_BASE.find("*")
+            num_str = cache[num_pos:]
+            num_end = 0
+            for idx, val in enumerate(num_str):
+                if val.isdigit():
+                    num_end = idx
+                    continue
+                break
+            num_str = num_str[0:num_end+1]
+            try:
+                num_val = int(num_str)
+                if num_val > max_index:
+                    max_index = num_val
+            except ValueError:
+                continue
+        cache_index = max_index+1
+    cache_path = OUTPUT_DIR + "\\" + OUTPUT_CACHE_BASE.replace("*", str(cache_index))
+
+    # Crawl scrapy sources
+    process = CrawlerProcess(settings={
+        "FEEDS": {
+            cache_path: {"format": "json"},
+        },
+        'LOG_LEVEL': 'WARNING',
+    })
+    for source in pyagent.get_source_list():
+        if isinstance(source.spider, pyagent.ScrapySpider):
+            logger.debug("Scraping source: {0} ({1})".format(source.name, source.key))
+            process.crawl(source.spider.scrapy_spider)
+    process.start()
+
+    logger.info("Finished scrape of specified sources")
 
     return True
 
@@ -195,6 +269,7 @@ def main(argv) -> int:
     return 0
 
 
+setup_logger()
 if __name__ == "__main__":
     print("PyAgent  Copyright (C) 2020  Timothy Volpe")
     print("This program comes with ABSOLUTELY NO WARRANTY.")

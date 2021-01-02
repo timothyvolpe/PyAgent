@@ -78,3 +78,7 @@ class Source:
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def spider(self) -> BaseSpider:
+        return self._spider

@@ -19,14 +19,17 @@
 import logging
 from typing import Optional
 from .data_source import Source
+from .spider import ScrapySpider
 from .source_apartments_com import ApartmentsComSpider
 from .source_craiglist import CraigslistSpider
 
 logger = logging.getLogger(__name__)
 
 # Initialize default sources
-source_list = [Source("apartments_com", "apartments.com", required_conf=["search_url"], spider=ApartmentsComSpider()),
-               Source("craigslist_bos", "boston.craigslist.com", required_conf=["subdomain"], spider=CraigslistSpider())]
+_source_list = [Source("apartments_com", "apartments.com", required_conf=["search_url"],
+                       spider=ApartmentsComSpider()),
+                Source("craigslist_bos", "boston.craigslist.com", required_conf=["subdomain"],
+                       spider=CraigslistSpider())]
 
 
 def get_source(key) -> Optional[Source]:
@@ -35,7 +38,7 @@ def get_source(key) -> Optional[Source]:
     :param key: Unique identifier representing source
     :return: Source object if found, none if invalid key
     """
-    for item in source_list:
+    for item in _source_list:
         if item.key == key:
             return item
     return None
@@ -47,5 +50,14 @@ def init_sources() -> None:
     :return: None
     """
     logger.debug("Initializing sources...")
-    for item in source_list:
+    for item in _source_list:
         item.init()
+
+
+def get_source_list() -> list[Source]:
+    """
+    Gets the list of housing sources
+    :return: List of housing sources
+    """
+    return _source_list
+

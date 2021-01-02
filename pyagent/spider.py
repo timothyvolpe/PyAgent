@@ -22,12 +22,15 @@ import scrapy
 logger = logging.getLogger(__name__)
 
 
-class BaseSpider(scrapy.Spider):
+class BaseSpider:
     """
-    Base scrapy class
+    Base source spider class
     """
     name = "apartments_crawler"
     start_urls = ""
+
+    def __init__(self):
+        pass
 
     def init(self, config) -> None:
         """
@@ -37,5 +40,22 @@ class BaseSpider(scrapy.Spider):
         """
         pass
 
-    def parse(self, response):
+
+class ScrapySpider(BaseSpider):
+    """
+    A scrapy spider source class
+    """
+
+    def __init__(self, spider: scrapy.Spider):
+        self._spider = spider
+
+    def init(self, config) -> None:
         pass
+
+    @property
+    def scrapy_spider(self) -> scrapy.Spider:
+        """
+        Get the scrapy spider object
+        :return: Scrapy spider object
+        """
+        return self._spider

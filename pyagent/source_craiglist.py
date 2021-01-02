@@ -18,25 +18,31 @@
 
 import logging
 import scrapy
-from .spider import BaseSpider
+from .spider import ScrapySpider
 
 logger = logging.getLogger(__name__)
 
 
-class CraigslistSpider(BaseSpider):
+class CraigslistSpider(ScrapySpider):
+    """
+    Scrapy spider for scraping craigslist
+    """
+
+    def __init__(self):
+        ScrapySpider.__init__(self, CraigslistSpiderWorker)
+
+    def init(self, config) -> None:
+        self._spider.name = "craiglist_spider"
+        start_urls = "https://" + config["subdomain"] + ".craigslist.com"
+        self._spider.start_urls.append(start_urls)
+
+
+class CraigslistSpiderWorker(scrapy.Spider):
     """
     scrapy spider class for scraping craigslist.com search page
     """
-    name = "apartments_crawler"
-    start_urls = "craigslist.com"
-
-    def init(self, config) -> None:
-        """
-        Assign config options
-        :param config: List of config options
-        :return:
-        """
-        self.start_urls = "https://" + config["subdomain"] + "." + self.start_urls
+    allowed_domains = ["craigslist.com"]
+    start_urls = []
 
     def parse(self, response):
         pass

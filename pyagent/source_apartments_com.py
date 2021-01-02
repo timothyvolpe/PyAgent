@@ -18,25 +18,38 @@
 
 import logging
 import scrapy
-from .spider import BaseSpider
+from .spider import ScrapySpider
 
 logger = logging.getLogger(__name__)
 
 
-class ApartmentsComSpider(BaseSpider):
+class ApartmentsComSpider(ScrapySpider):
+    """
+    Scrapy spider for scraping craigslist
+    """
+
+    def __init__(self):
+        ScrapySpider.__init__(self, ApartmentsComSpiderWorker)
+
+    def init(self, config) -> None:
+        self._spider.name = "apartments_com_spider"
+        start_urls = "https://www.apartments.com/" + config["search_url"]
+        self._spider.start_urls.append(start_urls)
+
+
+class ApartmentsComSpiderWorker(scrapy.Spider):
     """
     scrapy spider class for scraping apartments.com search page
     """
-    name = "apartments_crawler"
-    start_urls = "https://www.apartments.com/"
-
-    def init(self, config) -> None:
-        """
-        Assign config options
-        :param config: List of config options
-        :return:
-        """
-        self.start_urls = self.start_urls + config["search_url"]
+    allowed_domains = ["apartments.com"]
+    start_urls = []
 
     def parse(self, response):
-        pass
+        set_selector = 'div#placardContainer > ul > li.mortar-wrapper'
+        for apt_placard in response.css(set_selector):
+            addr_selector = '.property-title ::attr(title)'
+            price_selector = '.price-wrapper > .price-range ::text'
+            yield {
+                'address': apt_placard.css(addr_selector).extract_first(),
+                'price': apt_placard.css(price_selector).extract_first()
+            }
