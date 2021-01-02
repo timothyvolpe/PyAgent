@@ -184,7 +184,7 @@ def load_options() -> bool:
         config["scrape_websites"] = {"apartments_com": "1",
                                      "craigslist_bos": "1"}
 
-        config["apartments_com"] = {"search_url": "boston-ma/min-2-bedrooms-under-1500/"}
+        config["apartments_com"] = {"search_url": "boston-ma/2-to-3-bedrooms-under-1500/"}
         config["craigslist_bos"] = {"subdomain": "boston"}
 
         with open(CONFIG_FILE, "w") as configfile:
@@ -272,7 +272,7 @@ def main(argv) -> int:
 
 setup_logger()
 if __name__ == "__main__":
-    print("PyAgent  Copyright (C) 2020  Timothy Volpe")
+    print("PyAgent  Copyright (C) 2021  Timothy Volpe")
     print("This program comes with ABSOLUTELY NO WARRANTY.")
     print("This is free software, and you are welcome to redistribute it under certain conditions.")
     print("", flush=True)
