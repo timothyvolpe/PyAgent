@@ -158,6 +158,7 @@ def perform_scrape() -> bool:
         "FEEDS": {
             cache_path: {"format": "json"},
         },
+        'DOWNLOAD_DELAY': 1,
         'LOG_LEVEL': 'WARNING',
     })
     for source in pyagent.get_source_list():
