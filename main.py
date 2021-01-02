@@ -22,6 +22,7 @@ import configparser
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import pyagent
 
 LOG_FILE = "output.log"
 
@@ -49,6 +50,8 @@ root.addHandler(handler_info)
 logger = logging.getLogger(__name__)
 
 CONFIG_FILE = "options.ini"
+
+scrape_website_list = []
 
 
 def print_help() -> None:
@@ -86,6 +89,11 @@ def perform_scrape() -> bool:
     Performs a scrape of the supported and enabled websites.
     :return: True if successfully scraped all websites, false if otherwise
     """
+    logging.info("Performing scrape of sources specified in {0}".format(CONFIG_FILE))
+    logger.debug("Scraping the following sources: {0}".format(", ".join(scrape_website_list)))
+
+    pyagent.init_sources()
+
     return True
 
 
@@ -99,7 +107,10 @@ def load_options() -> bool:
         logger.debug("Config file {0} not found, creating default".format(CONFIG_FILE))
 
         config["scrape_websites"] = {"apartments_com": "1",
-                                     "craigslist": "1"}
+                                     "craigslist_bos": "1"}
+
+        config["apartments_com"] = {"search_url": "boston-ma/min-2-bedrooms-under-1500/"}
+        config["craigslist_bos"] = {"subdomain": "boston"}
 
         with open(CONFIG_FILE, "w") as configfile:
             config.write(configfile)
@@ -107,8 +118,32 @@ def load_options() -> bool:
     logger.debug("Reading config file {0}".format(CONFIG_FILE))
     read_files = config.read(CONFIG_FILE)
     if not read_files:
-        logger.error("Could not read config file, it should have been created it if did not exist")
+        logger.critical("Could not read config file, it should have been created it if did not exist")
         return False
+
+    if config.has_section("scrape_websites"):
+        scrape_sites = config["scrape_websites"]
+        for key in scrape_sites:
+            if pyagent.get_source(key):
+                scrape_website_list.append(key)
+            else:
+                logger.warning("Unknown source key {0}".format(key))
+    else:
+        logger.critical("Config file missing section [scrape_websites]")
+        return False
+
+    # Get settings for each source
+    for source_key in scrape_sites:
+        if not config.has_section(source_key):
+            logger.critical("Missing config section for source {0}".format(source_key))
+            return False
+        # Add to source
+        source_obj = pyagent.get_source(source_key)
+        for key in config[source_key]:
+            source_obj.add_config(key, config[source_key][key])
+        if not source_obj.verify_config():
+            logger.critical("Invalid config for source {0}".format(source_key))
+            return False
 
     return True
 
@@ -126,7 +161,7 @@ def main(argv) -> int:
     try:
         opts, args = getopt.getopt(argv, "hvs", [])
     except getopt.GetoptError:
-        logger.error("Invalid command line arguments.")
+        logger.critical("Invalid command line arguments.")
         print_help()
         return 2
 
@@ -146,13 +181,13 @@ def main(argv) -> int:
         logger.debug("Showing help, no other action is performed")
         print_help()
         return 0
+    if do_verbose:
+        enable_verbose()
 
     # Load the options file
     if not load_options():
         return 1
 
-    if do_verbose:
-        enable_verbose()
     if do_scrape:
         if not perform_scrape():
             return 1
@@ -163,8 +198,7 @@ def main(argv) -> int:
 if __name__ == "__main__":
     print("PyAgent  Copyright (C) 2020  Timothy Volpe")
     print("This program comes with ABSOLUTELY NO WARRANTY.")
-    print("This is free software, and you are welcome to redistribute it")
-    print("under certain conditions.")
-    print()
+    print("This is free software, and you are welcome to redistribute it under certain conditions.")
+    print("", flush=True)
 
     sys.exit(main(sys.argv[1:]))
