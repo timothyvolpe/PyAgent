@@ -1,2 +1,170 @@
+"""
+    PyAgent - Python program for aggregating housing info
+    Copyright (C) 2021 Timothy Volpe
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import sys
+import getopt
+import configparser
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+
+LOG_FILE = "output.log"
+
+root = logging.getLogger()
+root.setLevel(logging.DEBUG)
+log_formatter = logging.Formatter("[%(asctime)s][%(threadName)12.12s][%(levelname)5.5s] %(message)s")
+
+# Output log file handler
+handler_log = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=5*1024*1024, backupCount=2, encoding=None, delay=0)
+handler_log.setLevel(logging.DEBUG)
+handler_log.setFormatter(log_formatter)
+root.addHandler(handler_log)
+
+# stderr handler
+handler_err = logging.StreamHandler(sys.stderr)
+handler_err.setLevel(logging.ERROR)
+handler_err.setFormatter(log_formatter)
+root.addHandler(handler_err)
+
+# Regular info handler
+handler_info = logging.StreamHandler(sys.stdout)
+handler_info.addFilter(lambda record: record.levelno == logging.INFO)
+root.addHandler(handler_info)
+
+logger = logging.getLogger(__name__)
+
+CONFIG_FILE = "options.ini"
+
+
+def print_help() -> None:
+    """
+    Prints the help information
+    :return: None
+    """
+    print()
+    print("Usage: pyagent.py [-h] [-v level] [-s]")
+    print()
+    print("Options:")
+    print("\t-h\t\t\tDisplays command help")
+    print("\t-v level\tEnables verbose output, 1 is only info, 2 is debug")
+    print("\t-s\t\t\tScrapes the enabled websites and caches the results")
+    print()
+    print("\tSee options.ini for scrape-able websites.")
+    print()
+
+
+def enable_verbose() -> None:
+    """
+    Enables verbose output, by turning on the info logger
+    :return: Nothing
+    """
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(log_formatter)
+    handler.addFilter(lambda record: record.levelno == logging.DEBUG or record.levelno == logging.WARNING)
+    root.addHandler(handler)
+
+    logger.debug("Using verbose output")
+
+
+def perform_scrape() -> bool:
+    """
+    Performs a scrape of the supported and enabled websites.
+    :return: True if successfully scraped all websites, false if otherwise
+    """
+    return True
+
+
+def load_options() -> bool:
+    """
+    Loads the options file. If it does not exist, a default one will be created.
+    :return: True if successfully loaded or created the file, false if otherwise.
+    """
+    config = configparser.ConfigParser()
+    if not os.path.isfile(CONFIG_FILE):
+        logger.debug("Config file {0} not found, creating default".format(CONFIG_FILE))
+
+        config["scrape_websites"] = {"apartments_com": "1",
+                                     "craigslist": "1"}
+
+        with open(CONFIG_FILE, "w") as configfile:
+            config.write(configfile)
+
+    logger.debug("Reading config file {0}".format(CONFIG_FILE))
+    read_files = config.read(CONFIG_FILE)
+    if not read_files:
+        logger.error("Could not read config file, it should have been created it if did not exist")
+        return False
+
+    return True
+
+
+def main(argv) -> int:
+    """
+    Program main entry point. Parses command line arguments.
+    :param argv: Command line arguments
+    :return: Program return code
+    """
+
+    logger.info("Starting PyAgent...")
+
+    # Get command line arguments
+    try:
+        opts, args = getopt.getopt(argv, "hvs", [])
+    except getopt.GetoptError:
+        logger.error("Invalid command line arguments.")
+        print_help()
+        return 2
+
+    do_help = False
+    do_scrape = False
+    do_verbose = False
+
+    for opt, arg in opts:
+        if opt == "-h":
+            do_help = True
+        elif opt == "-v":
+            do_verbose = True
+        elif opt == "-s":
+            do_scrape = True
+
+    if do_help:
+        logger.debug("Showing help, no other action is performed")
+        print_help()
+        return 0
+
+    # Load the options file
+    if not load_options():
+        return 1
+
+    if do_verbose:
+        enable_verbose()
+    if do_scrape:
+        if not perform_scrape():
+            return 1
+
+    return 0
+
+
 if __name__ == "__main__":
-    print("Hello World")
+    print("PyAgent  Copyright (C) 2020  Timothy Volpe")
+    print("This program comes with ABSOLUTELY NO WARRANTY.")
+    print("This is free software, and you are welcome to redistribute it")
+    print("under certain conditions.")
+    print()
+
+    sys.exit(main(sys.argv[1:]))
