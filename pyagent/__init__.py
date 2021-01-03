@@ -27,7 +27,9 @@ from .criteria import (Criterion,
                        CriterionLesser,
                        CriterionGreater,
                        CriterionBeds,
-                       CriterionSqFt)
+                       CriterionSqFt,
+                       CriterionTrain,
+                       ResultFormat)
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +69,11 @@ def get_source_list() -> list[Source]:
     """
     return _source_list
 
+
+def set_train_data(data) -> None:
+    """
+    Sets the train data loaded from json
+    :param data: Train data loaded from json
+    :return: Nothing
+    """
+    Criterion.train_data = data

@@ -40,11 +40,18 @@ OUTPUT_CACHE_BASE = "scrape_results_*.json"
 
 scrape_website_list = []
 
-housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=800, upper=1500),
-                    pyagent.CriterionSqFt(name="Square Footage", key="sqft", weight=10, lower=0, upper=1200, maximum=2500),
-                    pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, weight=50, upper=3, minimum=2, required=True),
-                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=0, weight=15, upper=2, maximum=3),
-                    pyagent.CriterionLesser(name="Deposit", key="deposit", lower=0, weight=100, upper=4000)]
+housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=800,
+                                            result_format=pyagent.ResultFormat.Currency, upper=1500),
+                    pyagent.CriterionSqFt(name="Square Footage", key="sqft", weight=10, lower=0,
+                                          result_format=pyagent.ResultFormat.SquareFoot, upper=1200, maximum=2500),
+                    pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, weight=50, upper=3,
+                                          result_format=pyagent.ResultFormat.Bedrooms, minimum=2, required=True),
+                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=0, weight=15, upper=2,
+                                             result_format=pyagent.ResultFormat.Bathrooms, maximum=3),
+                    pyagent.CriterionLesser(name="Deposit", key="deposit", lower=0, weight=100, upper=4000,
+                                            result_format=pyagent.ResultFormat.Currency, ),
+                    pyagent.CriterionTrain(name="Train Proximity", key="coordinates", weight=50, max_distance=2,
+                                           result_format=pyagent.ResultFormat.Miles, )]
 
 
 class RegularFilter(logging.Filter):
@@ -234,7 +241,7 @@ def perform_characterization() -> bool:
             if criterion.key not in housing:
                 logger.error("Invalid key '{0}' for criterion {1}".format(criterion.key, criterion.name))
             result = criterion.evaluate(housing[criterion.key])
-            result_dict["criterion"].append([criterion, result, housing[criterion.key]])
+            result_dict["criterion"].append([criterion, result, criterion.result_info])
             if result != -1:
                 if result == 0:
                     is_bad = True
@@ -290,6 +297,8 @@ def load_options() -> bool:
         config["apartments_com"] = {"search_url": "boston-ma/2-to-3-bedrooms-under-1500/"}
         config["craigslist_bos"] = {"subdomain": "boston"}
 
+        config["train_data"] = {"source": "data/mbta.json"}
+
         with open(CONFIG_FILE, "w") as configfile:
             config.write(configfile)
 
@@ -302,12 +311,31 @@ def load_options() -> bool:
     if config.has_section("scrape_websites"):
         scrape_sites = config["scrape_websites"]
         for key in scrape_sites:
-            if pyagent.get_source(key):
-                scrape_website_list.append(key)
-            else:
-                logger.warning("Unknown source key {0}".format(key))
+            if config["scrape_websites"][key] == "1":
+                if pyagent.get_source(key):
+                    scrape_website_list.append(key)
+                else:
+                    logger.warning("Unknown source key {0}".format(key))
     else:
         logger.critical("Config file missing section [scrape_websites]")
+        return False
+
+    if config.has_option("train_data", "source"):
+        # Load train data
+        train_source = config["train_data"]["source"]
+        logger.debug("Loading train data from {0}".format(train_source))
+        try:
+            with open(train_source, "r") as train_file:
+                train_data = json.load(train_file)
+        except OSError as e:
+            logger.critical("Failed to load train data from {0}: {1}".format(train_source, e))
+            return False
+        except json.JSONDecodeError as e:
+            logger.critical("Failed to decode train data from {0}: {1}".format(train_source, e))
+            return False
+        pyagent.set_train_data(train_data)
+    else:
+        logger.critical("Missing train data!")
         return False
 
     # Get settings for each source
