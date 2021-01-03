@@ -29,10 +29,10 @@ from .spider import ScrapySpider
 logger = logging.getLogger(__name__)
 
 # Turn off for quick testing
-DO_MULTIPLE_PAGES = False
+DO_MULTIPLE_PAGES = True
 # Set the maximum number of apartment pages to check in one session
 # Set to 0 for infinite
-MAX_APARTMENT_SCRAPES = 5
+MAX_APARTMENT_SCRAPES = 0
 # Must be greater than 1
 NOMINATIM_REQUEST_DELAY = 1
 
@@ -111,7 +111,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         if deposit_str:
             deposit_str = self.cleanup_garbage(deposit_str)
             try:
-                deposit_val = int(deposit_str.replace("$", ""))
+                deposit_val = int(deposit_str.replace("$", "").replace(",", ""))
                 deposit_str = str(deposit_val)
             except ValueError:
                 pass
@@ -154,6 +154,8 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             "baths_str": baths_str,
             "coordinates": location,
             "additional": additional_tags,
+            "link": response.request.url,
+            "source": "apartments.com"
         }
 
         # Move to the next one

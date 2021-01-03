@@ -24,7 +24,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import glob
 import pyagent
-import scrapy
+import json
 from scrapy.crawler import CrawlerProcess
 
 LOG_FILE = "output.log"
@@ -39,6 +39,11 @@ OUTPUT_DIR = "output"
 OUTPUT_CACHE_BASE = "scrape_results_*.json"
 
 scrape_website_list = []
+
+housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", lower=800, upper=1500),
+                    pyagent.CriterionSqFt(name="Square Footage", key="sqft", lower=0, upper=1200, maximum=2500),
+                    pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, upper=3, minimum=2, required=True),
+                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=1, upper=2, maximum=3)]
 
 
 class RegularFilter(logging.Filter):
@@ -192,14 +197,59 @@ def perform_characterization() -> bool:
     cache_files = glob.glob(OUTPUT_DIR + "/" + OUTPUT_CACHE_BASE)
     if not cache_files:
         logger.info("There was not cached housing data to characterize. Try running pyagent -s to scrape data.")
-        return 0
+        return False
     # Get the latest cache
     cache_name, cache_index = get_latest_cache(cache_files)
     if cache_name == "":
         logger.info("Could not find valid housing data cache. Try running pyagent -s to scrape data.")
-        return 0
+        return False
+    cache_name = OUTPUT_DIR + "/" + cache_name
 
     logger.info("Characterizing housing data from cache '{0}'...".format(cache_name))
+
+    try:
+        with open(cache_name, "r") as cache_file:
+            housing_data = json.load(cache_file)
+    except OSError as e:
+        logger.critical("Failed to load scrapy data from {0}: {1}".format(cache_name, e))
+        return False
+
+    # Characterize each
+    char_results = []
+    for housing in housing_data:
+        result_dict = {
+            "address": housing["address"],
+            "link": housing["link"],
+            "source": housing["source"],
+            "criterion": []
+        }
+        total = 0
+        for criterion in housing_criteria:
+            if criterion.key not in housing:
+                logger.error("Invalid key '{0}' for criterion {1}".format(criterion.key, criterion.name))
+            result = criterion.evaluate(housing[criterion.key])
+            result_dict["criterion"].append([criterion, result, housing[criterion.key]])
+            if result != -1:
+                total += result
+        result_dict["TOTAL"] = total
+        char_results.append(result_dict)
+
+    char_results = sorted(char_results, key=lambda x: x["TOTAL"])
+    for result in char_results:
+        logger.info(result["address"])
+        logger.info("  " + result["link"])
+        logger.info("  Source: " + result["source"])
+        for criterion_data in result["criterion"]:
+            criterion = criterion_data[0]
+            result_val = criterion_data[1]
+            key_val = criterion_data[2]
+            if result != -1:
+                logger.info("  {0:16.16s} = {1:2.2f}\t({2})".format(criterion.name, result_val, key_val))
+            else:
+                logger.info("  {0:16.16s} = ----\t({1})".format(criterion.name, key_val))
+        logger.info("  {0:16.16s} = {1:2.2f}".format("TOTAL", result["TOTAL"]))
+
+    logger.info("\nResults Printed Bottom Down (Best Result at Bottom)")
 
     return True
 

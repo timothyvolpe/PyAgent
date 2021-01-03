@@ -23,6 +23,11 @@ from .spider import ScrapySpider
 from .source_apartments_com import ApartmentsComSpider
 from .source_craiglist import CraigslistSpider
 from .cache import LocationCache
+from .criteria import (Criterion,
+                       CriterionLesser,
+                       CriterionGreater,
+                       CriterionBeds,
+                       CriterionSqFt)
 
 logger = logging.getLogger(__name__)
 
