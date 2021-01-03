@@ -22,16 +22,17 @@ import geopy
 import re
 import geopy.geocoders as gc
 import time
+from .cache import LocationCache
 
 from .spider import ScrapySpider
 
 logger = logging.getLogger(__name__)
 
 # Turn off for quick testing
-DO_MULTIPLE_PAGES = True
+DO_MULTIPLE_PAGES = False
 # Set the maximum number of apartment pages to check in one session
 # Set to 0 for infinite
-MAX_APARTMENT_SCRAPES = 0
+MAX_APARTMENT_SCRAPES = 5
 # Must be greater than 1
 NOMINATIM_REQUEST_DELAY = 1
 
@@ -129,6 +130,15 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             integers = re.search(r'\d+', beds_str)
             if integers:
                 beds_val = int(integers.group())
+                beds_str = str(beds_val)
+
+        baths_str = response.css(".rentalGridRow > .baths > .longText ::text").extract_first()
+        if baths_str:
+            baths_str = self.cleanup_garbage(baths_str)
+            integers = re.search(r'\d+', baths_str)
+            if integers:
+                baths_val = int(integers.group())
+                baths_str = str(baths_val)
 
         location = self._locations[self._apartment_index]
         address = self._addresses[self._apartment_index]
@@ -141,7 +151,8 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             "deposit": deposit_str,
             "sqft": sqft_str,
             "beds": beds_str,
-            "coordinates": (location.latitude, location.longitude),
+            "baths_str": baths_str,
+            "coordinates": location,
             "additional": additional_tags,
         }
 
@@ -193,20 +204,25 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                 addr_sub_selector = '.property-address ::attr(title)'
                 addr_title = apt_placard.css(addr_sub_selector).extract_first()
 
+            # Check if address is in cache
+            location = LocationCache.get_location(addr_title)
             # Make sure address is valid
-            time_since_last = (time.time() - self._last_nom_reqest)
-            if time_since_last < NOMINATIM_REQUEST_DELAY:
-                time.sleep(NOMINATIM_REQUEST_DELAY - time_since_last)
-            try:
-                geolocator = gc.Nominatim(user_agent="pyagent")
-                location = geolocator.geocode(addr_title)
-            except geopy.exc.ConfigurationError as e:
-                location = None
-            self._last_nom_reqest = time.time()
             if location is None:
-                logger.error("Could not get geospatial coordinates of address '{0}', "
-                             "see source at {1}".format(addr_title, response.request.url))
-                continue
+                time_since_last = (time.time() - self._last_nom_reqest)
+                if time_since_last < NOMINATIM_REQUEST_DELAY:
+                    time.sleep(NOMINATIM_REQUEST_DELAY - time_since_last)
+                try:
+                    geolocator = gc.Nominatim(user_agent="pyagent")
+                    location_obj = geolocator.geocode(addr_title)
+                except geopy.exc.ConfigurationError as e:
+                    location_obj = None
+                self._last_nom_reqest = time.time()
+                if location_obj is None:
+                    logger.error("Could not get geospatial coordinates of address '{0}', "
+                                 "see source at {1}".format(addr_title, response.request.url))
+                    continue
+                location = (location_obj.latitude, location_obj.longitude)
+                LocationCache.add_to_cache(addr_title, location)
 
             apartment_link = apt_placard.css(link_selector).extract_first()
             self._apartment_urls.append(apartment_link)

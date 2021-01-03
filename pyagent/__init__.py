@@ -22,6 +22,7 @@ from .data_source import Source
 from .spider import ScrapySpider
 from .source_apartments_com import ApartmentsComSpider
 from .source_craiglist import CraigslistSpider
+from .cache import LocationCache
 
 logger = logging.getLogger(__name__)
 

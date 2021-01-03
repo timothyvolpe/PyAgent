@@ -54,7 +54,7 @@ class VerboseFilter(logging.Filter):
     Filter for verbose output
     """
     def filter(self, record):
-        return True
+        return (record.levelno == logging.INFO or record.levelno == logging.WARNING) and "scrapy" not in record.name
 
 
 def setup_logger():
@@ -88,7 +88,7 @@ def print_help() -> None:
     :return: None
     """
     print()
-    print("Usage: pyagent.py [-h] [-v level] [-s]")
+    print("Usage: pyagent [-h] [-v level] [-s]")
     print()
     print("Options:")
     print("\t-h\t\t\tDisplays command help")
@@ -115,6 +115,35 @@ def enable_verbose() -> None:
     logger.debug("Using verbose output")
 
 
+def get_latest_cache(caches: list[str]) -> (str, int):
+    """
+    Takes a list of cache file names and returns the one with the highest index
+    :param caches: List of cache file names
+    :return: Cache file name with highest index, and index value
+    """
+    max_index = 1
+    max_cache_name = ""
+    for cache in caches:
+        cache = cache.split("\\")[1]
+        num_pos = OUTPUT_CACHE_BASE.find("*")
+        num_str = cache[num_pos:]
+        num_end = 0
+        for idx, val in enumerate(num_str):
+            if val.isdigit():
+                num_end = idx
+                continue
+            break
+        num_str = num_str[0:num_end + 1]
+        try:
+            num_val = int(num_str)
+            if num_val >= max_index:
+                max_index = num_val
+                max_cache_name = cache
+        except ValueError:
+            continue
+    return max_cache_name, max_index
+
+
 def perform_scrape() -> bool:
     """
     Performs a scrape of the supported and enabled websites.
@@ -132,26 +161,8 @@ def perform_scrape() -> bool:
         os.makedirs(OUTPUT_DIR)
     else:
         cache_files = glob.glob(OUTPUT_DIR + "/" + OUTPUT_CACHE_BASE)
-        max_index = 0
-        for cache in cache_files:
-            cache = cache.split("\\")[1]
-            num_pos = OUTPUT_CACHE_BASE.find("*")
-            num_str = cache[num_pos:]
-            num_end = 0
-            for idx, val in enumerate(num_str):
-                if val.isdigit():
-                    num_end = idx
-                    continue
-                break
-            num_str = num_str[0:num_end+1]
-            try:
-                num_val = int(num_str)
-                if num_val > max_index:
-                    max_index = num_val
-            except ValueError:
-                continue
-        cache_index = max_index+1
-    cache_path = OUTPUT_DIR + "\\" + OUTPUT_CACHE_BASE.replace("*", str(cache_index))
+        _, cache_index = get_latest_cache(cache_files)
+    cache_path = OUTPUT_DIR + "\\" + OUTPUT_CACHE_BASE.replace("*", str(cache_index+1))
 
     # Crawl scrapy sources
     process = CrawlerProcess(settings={
@@ -168,6 +179,27 @@ def perform_scrape() -> bool:
     process.start()
 
     logger.info("Finished scrape of specified sources")
+
+    return True
+
+
+def perform_characterization() -> bool:
+    """
+    Characterizes housing data from latest scrape
+    :return: True if successfully characterized, false if otherwise
+    """
+    # Check for cached scrape data
+    cache_files = glob.glob(OUTPUT_DIR + "/" + OUTPUT_CACHE_BASE)
+    if not cache_files:
+        logger.info("There was not cached housing data to characterize. Try running pyagent -s to scrape data.")
+        return 0
+    # Get the latest cache
+    cache_name, cache_index = get_latest_cache(cache_files)
+    if cache_name == "":
+        logger.info("Could not find valid housing data cache. Try running pyagent -s to scrape data.")
+        return 0
+
+    logger.info("Characterizing housing data from cache '{0}'...".format(cache_name))
 
     return True
 
@@ -267,6 +299,9 @@ def main(argv) -> int:
         if not perform_scrape():
             return 1
 
+    if not perform_characterization():
+        return 1
+
     return 0
 
 
@@ -277,4 +312,8 @@ if __name__ == "__main__":
     print("This is free software, and you are welcome to redistribute it under certain conditions.")
     print("", flush=True)
 
-    sys.exit(main(sys.argv[1:]))
+    pyagent.LocationCache.init_cache()
+    ret_val = main(sys.argv[1:])
+    pyagent.LocationCache.save_cache()
+    sys.exit(ret_val)
+

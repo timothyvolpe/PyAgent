@@ -17,7 +17,6 @@
 """
 
 import logging
-import scrapy
 from .spider import BaseSpider
 
 logger = logging.getLogger(__name__)
