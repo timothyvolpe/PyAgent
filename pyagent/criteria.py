@@ -16,23 +16,23 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-RATING_MAX = 10
-
 
 class Criterion:
     """
     Base housing characterization criterion
     """
-    def __init__(self, name: str, key: str, required: bool = False):
+    def __init__(self, name: str, key: str, weight: int, required: bool = False):
         """
         Constructor
         :param name: The user-facing name of the criterion
         :param key: The key from the scrape data to evaluate
+        :param weight: The weight of the criterion in points, ex. 100 means it will contribute at most 100 points
         :param required: If the criterion is required. If required, when it cannot be evaluated the housing will be
         discarded. When false, if the criterion cannot be evaluated, then it simply will not be considered.
         """
         self._name = name
         self._key = key
+        self._weight = weight
         self._required = required
 
     def evaluate(self, data) -> float:
@@ -51,7 +51,7 @@ class Criterion:
         if value < lower:
             return 0
         if value > upper:
-            return RATING_MAX
+            return rating_max
         scale_factor = rating_max / (upper-lower)
         return (value - lower)*scale_factor
 
@@ -72,17 +72,18 @@ class CriterionGreater(Criterion):
     """
     Housing characterization criterion where greater is better
     """
-    def __init__(self, name: str, key: str, lower: int, upper: int, required: bool = False, maximum=None):
+    def __init__(self, name: str, key: str, weight: int, lower: int, upper: int, required: bool = False, maximum=None):
         """
         :param name: The user-facing name of the criterion
         :param key: The key from the scrape data to evaluate, must be integer
+        :param weight: The weight of the criterion in points, ex. 100 means it will contribute at most 100 points
         :param lower: The lower bounds to map the rating range
         :param upper: The upper bounds to map the rating range
         :param required: If the criterion is required. If required, when it cannot be evaluated the housing will be
         discarded. When false, if the criterion cannot be evaluated, then it simply will not be considered.
         :param maximum: The maximum value for the criterion, above which it is not considered. None means no max
         """
-        Criterion.__init__(self, name, key, required)
+        Criterion.__init__(self, name, key, weight, required)
         self._maximum = maximum
         self._lower = lower
         self._upper = upper
@@ -93,7 +94,7 @@ class CriterionGreater(Criterion):
                 value = int(data)
                 if self._maximum is not None and value > self._maximum:
                     return -1
-                return Criterion.map_to_range(value, self._lower, self._upper, RATING_MAX)
+                return Criterion.map_to_range(value, self._lower, self._upper, self._weight)
             except ValueError:
                 return 0
         return 0
@@ -103,17 +104,18 @@ class CriterionLesser(Criterion):
     """
     Housing characterization criterion where lesser is better
     """
-    def __init__(self, name: str, key: str, lower: int, upper: int, required: bool = False, minimum=None):
+    def __init__(self, name: str, key: str, weight: int, lower: int, upper: int, required: bool = False, minimum=None):
         """
         :param name: The user-facing name of the criterion
         :param key: The key from the scrape data to evaluate, must be integer
+        :param weight: The weight of the criterion in points, ex. 100 means it will contribute at most 100 points
         :param lower: The lower bounds to map the rating range
         :param upper: The upper bounds to map the rating range
         :param required: If the criterion is required. If required, when it cannot be evaluated the housing will be
         discarded. When false, if the criterion cannot be evaluated, then it simply will not be considered.
         :param minimum: The minimum value for the criterion, below which it is not considered. None means no min
         """
-        Criterion.__init__(self, name, key, required)
+        Criterion.__init__(self, name, key, weight, required)
         self._minimum = minimum
         self._lower = lower
         self._upper = upper
@@ -124,7 +126,7 @@ class CriterionLesser(Criterion):
                 value = int(data)
                 if self._minimum is not None and value < self._minimum:
                     return -1
-                return 10 - Criterion.map_to_range(value, self._lower, self._upper, RATING_MAX)
+                return self._weight - Criterion.map_to_range(value, self._lower, self._upper, self._weight)
             except ValueError:
                 return 0
         return 0

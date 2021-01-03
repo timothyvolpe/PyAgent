@@ -40,11 +40,11 @@ OUTPUT_CACHE_BASE = "scrape_results_*.json"
 
 scrape_website_list = []
 
-housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", lower=800, upper=1500),
-                    pyagent.CriterionSqFt(name="Square Footage", key="sqft", lower=0, upper=1200, maximum=2500),
-                    pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, upper=3, minimum=2, required=True),
-                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=1, upper=2, maximum=3),
-                    pyagent.CriterionLesser(name="Deposit", key="deposit", lower=0, upper=4000)]
+housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=800, upper=1500),
+                    pyagent.CriterionSqFt(name="Square Footage", key="sqft", weight=10, lower=0, upper=1200, maximum=2500),
+                    pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, weight=50, upper=3, minimum=2, required=True),
+                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=0, weight=15, upper=2, maximum=3),
+                    pyagent.CriterionLesser(name="Deposit", key="deposit", lower=0, weight=100, upper=4000)]
 
 
 class RegularFilter(logging.Filter):
@@ -216,7 +216,10 @@ def perform_characterization() -> bool:
         return False
 
     # Characterize each
-    char_results = []
+    char_results_good = []      # Good apartments
+    char_results_bad = []       # Bad apartments (have a 0 in some category)
+    char_results_dq = []        # Disqualified apartments
+    total_houses = len(housing_data)
     for housing in housing_data:
         result_dict = {
             "address": housing["address"],
@@ -226,32 +229,48 @@ def perform_characterization() -> bool:
             "criterion": []
         }
         total = 0
+        is_bad = False
         for criterion in housing_criteria:
             if criterion.key not in housing:
                 logger.error("Invalid key '{0}' for criterion {1}".format(criterion.key, criterion.name))
             result = criterion.evaluate(housing[criterion.key])
             result_dict["criterion"].append([criterion, result, housing[criterion.key]])
             if result != -1:
+                if result == 0:
+                    is_bad = True
                 total += result
         result_dict["TOTAL"] = total
-        char_results.append(result_dict)
+        if not is_bad:
 
-    char_results = sorted(char_results, key=lambda x: x["TOTAL"])
-    for result in char_results:
-        logger.info("{0}\tUnit {1}".format(result["address"], result["unit"]))
-        logger.info("  " + result["link"])
-        logger.info("  Source: " + result["source"])
-        for criterion_data in result["criterion"]:
-            criterion = criterion_data[0]
-            result_val = criterion_data[1]
-            key_val = criterion_data[2]
-            if result != -1:
-                logger.info("  {0:16.16s} = {1:2.2f}\t({2})".format(criterion.name, result_val, key_val))
-            else:
-                logger.info("  {0:16.16s} = ----\t({1})".format(criterion.name, key_val))
-        logger.info("  {0:16.16s} = {1:2.2f}".format("TOTAL", result["TOTAL"]))
+            char_results_good.append(result_dict)
+        else:
+            char_results_bad.append(result_dict)
 
-    logger.info("\nResults Printed Bottom Down (Best Result at Bottom)")
+    def print_results(result_list, name):
+        result_list = sorted(result_list, key=lambda x: x["TOTAL"])
+        logger.info("Printing Results for {0}:".format(name))
+        for result in result_list:
+            logger.info("{0}\tUnit {1}".format(result["address"], result["unit"]))
+            logger.info("  " + result["link"])
+            logger.info("  Source: " + result["source"])
+            for criterion_data in result["criterion"]:
+                criterion = criterion_data[0]
+                result_val = criterion_data[1]
+                key_val = criterion_data[2]
+                if result != -1:
+                    logger.info("  {0:16.16s} = {1:2.2f}\t({2})".format(criterion.name, result_val, key_val))
+                else:
+                    logger.info("  {0:16.16s} = ----\t({1})".format(criterion.name, key_val))
+            logger.info("  {0:16.16s} = {1:2.2f}".format("TOTAL", result["TOTAL"]))
+
+        logger.info("\nResults Printed Bottom Down (Best Result at Bottom)\n")
+
+    print_results(char_results_bad, "Okay Housing")
+    print_results(char_results_good, "Perfect Housing")
+
+    logger.info("Characterized {0} Entries of Housing Data".format(total_houses))
+    logger.info("  Of those entries, {0} were considered PERFECT and {1} were considered OKAY".format(
+        len(char_results_good), len(char_results_bad)))
 
     return True
 
