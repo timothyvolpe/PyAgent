@@ -86,7 +86,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         return ' '.join(simplified.split()).rstrip().lstrip()
 
     def parse_apartment(self, response):
-        if self._apartment_index >= MAX_APARTMENT_SCRAPES and MAX_APARTMENT_SCRAPES != 0:
+        if self._apartment_index >= MAX_APARTMENT_SCRAPES != 0:
             return
 
         property_name = response.css(".propertyNameRow > .propertyName ::text").extract_first()
@@ -95,68 +95,84 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             property_name = self.cleanup_garbage(property_name)
         property_addr = response.css(".propertyAddressRow > .propertyAddress > h2").extract_first()
         if property_addr:
-            property_addr = self.cleanup_garbage(property_addr.replace("<span>", "").replace("</span>", "") \
-                .replace("<h2>", "").replace("</h2>", ""))
+            property_addr = self.cleanup_garbage(property_addr.replace("<span>", "").replace("</span>", "")
+                                                 .replace("<h2>", "").replace("</h2>", ""))
         property_neighborhood = response.css(".neighborhoodAddress > a.neighborhood ::text").extract_first()
 
-        rent_str = response.css(".rentalGridRow > .rent ::text").extract_first()
-        if rent_str:
-            rent_str = self.cleanup_garbage(rent_str)
-            try:
-                rent_val = int(rent_str.replace("$", "").replace(",", ""))
-                rent_str = str(rent_val)
-            except ValueError:
-                pass
-        deposit_str = response.css(".rentalGridRow > .deposit ::text").extract_first()
-        if deposit_str:
-            deposit_str = self.cleanup_garbage(deposit_str)
-            try:
-                deposit_val = int(deposit_str.replace("$", "").replace(",", ""))
-                deposit_str = str(deposit_val)
-            except ValueError:
-                pass
-        sqft_str = response.css(".rentalGridRow > .sqft ::text").extract_first()
-        if sqft_str:
-            sqft_str = self.cleanup_garbage(sqft_str)
-            try:
-                sqft_val = int(sqft_str.replace(",", "").replace("Sq Ft", ""))
-                sqft_str = str(sqft_val)
-            except ValueError:
-                pass
+        # Get the first table of units (usually All)
+        first_tab = response.css(".tabContent")[0]
+        # If it doesnt exist, true single rental table
+        first_tab = response.css(".availabilityTable")[0]
 
-        beds_str = response.css(".rentalGridRow > .beds > .longText ::text").extract_first()
-        if beds_str:
-            beds_str = self.cleanup_garbage(beds_str)
-            integers = re.search(r'\d+', beds_str)
-            if integers:
-                beds_val = int(integers.group())
-                beds_str = str(beds_val)
+        # Check each unit
+        for unit in first_tab.css(".rentalGridRow"):
+            unit_str = unit.css(".rentalGridRow > .unit > button ::text").extract_first()
+            if unit_str:
+                unit_str = self.cleanup_garbage(unit_str)
+            else:
+                unit_str = unit.css(".rentalGridRow > .unit ::text").extract_first()
+                if unit_str:
+                    unit_str = self.cleanup_garbage(unit_str)
 
-        baths_str = response.css(".rentalGridRow > .baths > .longText ::text").extract_first()
-        if baths_str:
-            baths_str = self.cleanup_garbage(baths_str)
-            integers = re.search(r'\d+', baths_str)
-            if integers:
-                baths_val = int(integers.group())
-                baths_str = str(baths_val)
+            rent_str = unit.css(".rentalGridRow > .rent ::text").extract_first()
+            if rent_str:
+                rent_str = self.cleanup_garbage(rent_str)
+                try:
+                    rent_val = int(rent_str.replace("$", "").replace(",", ""))
+                    rent_str = str(rent_val)
+                except ValueError:
+                    pass
+            deposit_str = unit.css(".rentalGridRow > .deposit ::text").extract_first()
+            if deposit_str:
+                deposit_str = self.cleanup_garbage(deposit_str)
+                try:
+                    deposit_val = int(deposit_str.replace("$", "").replace(",", ""))
+                    deposit_str = str(deposit_val)
+                except ValueError:
+                    pass
+            sqft_str = unit.css(".rentalGridRow > .sqft ::text").extract_first()
+            if sqft_str:
+                sqft_str = self.cleanup_garbage(sqft_str)
+                try:
+                    sqft_val = int(sqft_str.replace(",", "").replace("Sq Ft", ""))
+                    sqft_str = str(sqft_val)
+                except ValueError:
+                    pass
 
-        location = self._locations[self._apartment_index]
-        address = self._addresses[self._apartment_index]
-        additional_tags = self._additional_tags[self._apartment_index]
+            beds_str = unit.css(".rentalGridRow > .beds > .longText ::text").extract_first()
+            if beds_str:
+                beds_str = self.cleanup_garbage(beds_str)
+                integers = re.search(r'\d+', beds_str)
+                if integers:
+                    beds_val = int(integers.group())
+                    beds_str = str(beds_val)
 
-        yield {
-            "address": address,
-            "neighborhood": property_neighborhood,
-            "rent": rent_str,
-            "deposit": deposit_str,
-            "sqft": sqft_str,
-            "beds": beds_str,
-            "baths_str": baths_str,
-            "coordinates": location,
-            "additional": additional_tags,
-            "link": response.request.url,
-            "source": "apartments.com"
-        }
+            baths_str = unit.css(".rentalGridRow > .baths > .longText ::text").extract_first()
+            if baths_str:
+                baths_str = self.cleanup_garbage(baths_str)
+                integers = re.search(r'\d+', baths_str)
+                if integers:
+                    baths_val = int(integers.group())
+                    baths_str = str(baths_val)
+
+            location = self._locations[self._apartment_index]
+            address = self._addresses[self._apartment_index]
+            additional_tags = self._additional_tags[self._apartment_index]
+
+            yield {
+                "address": address,
+                "neighborhood": property_neighborhood,
+                "rent": rent_str,
+                "deposit": deposit_str,
+                "sqft": sqft_str,
+                "beds": beds_str,
+                "baths_str": baths_str,
+                "unit": unit_str,
+                "coordinates": location,
+                "additional": additional_tags,
+                "link": response.request.url,
+                "source": "apartments.com"
+            }
 
         # Move to the next one
         if self._apartment_index+1 < len(self._apartment_urls):
@@ -222,6 +238,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                 if location_obj is None:
                     logger.error("Could not get geospatial coordinates of address '{0}', "
                                  "see source at {1}".format(addr_title, response.request.url))
+                    LocationCache.add_to_cache(addr_title, None)
                     continue
                 location = (location_obj.latitude, location_obj.longitude)
                 LocationCache.add_to_cache(addr_title, location)

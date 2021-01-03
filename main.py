@@ -43,7 +43,8 @@ scrape_website_list = []
 housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", lower=800, upper=1500),
                     pyagent.CriterionSqFt(name="Square Footage", key="sqft", lower=0, upper=1200, maximum=2500),
                     pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, upper=3, minimum=2, required=True),
-                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=1, upper=2, maximum=3)]
+                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=1, upper=2, maximum=3),
+                    pyagent.CriterionLesser(name="Deposit", key="deposit", lower=0, upper=4000)]
 
 
 class RegularFilter(logging.Filter):
@@ -221,6 +222,7 @@ def perform_characterization() -> bool:
             "address": housing["address"],
             "link": housing["link"],
             "source": housing["source"],
+            "unit": housing["unit"],
             "criterion": []
         }
         total = 0
@@ -236,7 +238,7 @@ def perform_characterization() -> bool:
 
     char_results = sorted(char_results, key=lambda x: x["TOTAL"])
     for result in char_results:
-        logger.info(result["address"])
+        logger.info("{0}\tUnit {1}".format(result["address"], result["unit"]))
         logger.info("  " + result["link"])
         logger.info("  Source: " + result["source"])
         for criterion_data in result["criterion"]:
