@@ -1,3 +1,8 @@
+options.ini
+output.log
+output/
+cache/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
