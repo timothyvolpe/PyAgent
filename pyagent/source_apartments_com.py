@@ -23,8 +23,7 @@ import re
 import geopy.geocoders as gc
 import time
 from .cache import LocationCache
-
-from .spider import ScrapySpider
+from .spider import ScrapySpider, BaseSpider
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +32,6 @@ DO_MULTIPLE_PAGES = True
 # Set the maximum number of apartment pages to check in one session
 # Set to 0 for infinite
 MAX_APARTMENT_SCRAPES = 0
-# Must be greater than 1
-NOMINATIM_REQUEST_DELAY = 1
 
 
 class ApartmentsComSpider(ScrapySpider):
@@ -55,6 +52,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
     """
     scrapy spider class for scraping apartments.com search page
     """
+    name = "apartments_com_spider"
     allowed_domains = ["apartments.com"]
     start_urls = []
 
@@ -67,24 +65,6 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         self._apartment_index = 0
         self._last_nom_reqest = 0
 
-    def cleanup_garbage(self, dirty: str) -> str:
-        """
-        Clean up HTML garbage from tag text. Removes excess whitespace, leading and trailing whitespace, and some
-        control characters
-        :param dirty: The dirty string
-        :return: Cleaner string
-        """
-        return ' '.join(dirty.split()).replace("\n", "").replace("\r", "").lstrip().rstrip()
-
-    def simplify_address(self, addr: str) -> str:
-        """
-        Simplifies the housing address by removing things such as "Unit"
-        :param addr: The verbose address
-        :return: The simplified address
-        """
-        simplified = addr.replace("Unit", "")
-        return ' '.join(simplified.split()).rstrip().lstrip()
-
     def parse_apartment(self, response):
         if self._apartment_index >= MAX_APARTMENT_SCRAPES != 0:
             return
@@ -92,10 +72,10 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         property_name = response.css(".propertyNameRow > .propertyName ::text").extract_first()
         # remove excess whitespace and control characters
         if property_name:
-            property_name = self.cleanup_garbage(property_name)
+            property_name = BaseSpider.cleanup_garbage(property_name)
         property_addr = response.css(".propertyAddressRow > .propertyAddress > h2").extract_first()
         if property_addr:
-            property_addr = self.cleanup_garbage(property_addr.replace("<span>", "").replace("</span>", "")
+            property_addr = BaseSpider.cleanup_garbage(property_addr.replace("<span>", "").replace("</span>", "")
                                                  .replace("<h2>", "").replace("</h2>", ""))
         property_neighborhood = response.css(".neighborhoodAddress > a.neighborhood ::text").extract_first()
 
@@ -108,15 +88,15 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         for unit in first_tab.css(".rentalGridRow"):
             unit_str = unit.css(".rentalGridRow > .unit > button ::text").extract_first()
             if unit_str:
-                unit_str = self.cleanup_garbage(unit_str)
+                unit_str = BaseSpider.cleanup_garbage(unit_str)
             else:
                 unit_str = unit.css(".rentalGridRow > .unit ::text").extract_first()
                 if unit_str:
-                    unit_str = self.cleanup_garbage(unit_str)
+                    unit_str = BaseSpider.cleanup_garbage(unit_str)
 
             rent_str = unit.css(".rentalGridRow > .rent ::text").extract_first()
             if rent_str:
-                rent_str = self.cleanup_garbage(rent_str)
+                rent_str = BaseSpider.cleanup_garbage(rent_str)
                 try:
                     rent_val = int(rent_str.replace("$", "").replace(",", ""))
                     rent_str = str(rent_val)
@@ -124,7 +104,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                     pass
             deposit_str = unit.css(".rentalGridRow > .deposit ::text").extract_first()
             if deposit_str:
-                deposit_str = self.cleanup_garbage(deposit_str)
+                deposit_str = BaseSpider.cleanup_garbage(deposit_str)
                 try:
                     deposit_val = int(deposit_str.replace("$", "").replace(",", ""))
                     deposit_str = str(deposit_val)
@@ -132,7 +112,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                     pass
             sqft_str = unit.css(".rentalGridRow > .sqft ::text").extract_first()
             if sqft_str:
-                sqft_str = self.cleanup_garbage(sqft_str)
+                sqft_str = BaseSpider.cleanup_garbage(sqft_str)
                 try:
                     sqft_val = int(sqft_str.replace(",", "").replace("Sq Ft", ""))
                     sqft_str = str(sqft_val)
@@ -141,7 +121,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
 
             beds_str = unit.css(".rentalGridRow > .beds > .longText ::text").extract_first()
             if beds_str:
-                beds_str = self.cleanup_garbage(beds_str)
+                beds_str = BaseSpider.cleanup_garbage(beds_str)
                 integers = re.search(r'\d+', beds_str)
                 if integers:
                     beds_val = int(integers.group())
@@ -149,7 +129,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
 
             baths_str = unit.css(".rentalGridRow > .baths > .longText ::text").extract_first()
             if baths_str:
-                baths_str = self.cleanup_garbage(baths_str)
+                baths_str = BaseSpider.cleanup_garbage(baths_str)
                 integers = re.search(r'\d+', baths_str)
                 if integers:
                     baths_val = int(integers.group())
@@ -225,10 +205,10 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             # Check if address is in cache
             location = LocationCache.get_location(addr_title)
             # Make sure address is valid
-            if location is None:
+            if location is None and not LocationCache.entry_present(address):
                 time_since_last = (time.time() - self._last_nom_reqest)
-                if time_since_last < NOMINATIM_REQUEST_DELAY:
-                    time.sleep(NOMINATIM_REQUEST_DELAY - time_since_last)
+                if time_since_last < BaseSpider.NOMINATIM_REQUEST_DELAY:
+                    time.sleep(BaseSpider.NOMINATIM_REQUEST_DELAY - time_since_last)
                 try:
                     geolocator = gc.Nominatim(user_agent="pyagent")
                     location_obj = geolocator.geocode(addr_title)

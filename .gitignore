@@ -1,7 +1,9 @@
 options.ini
 output.log
+output.log.*
 output/
 cache/
+browsers.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

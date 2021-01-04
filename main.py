@@ -25,7 +25,11 @@ import os
 import glob
 import pyagent
 import json
+import importlib
+import random
 from scrapy.crawler import CrawlerProcess
+
+has_browsers_file = False
 
 LOG_FILE = "output.log"
 
@@ -107,6 +111,7 @@ def print_help() -> None:
     print("\t-h\t\t\tDisplays command help")
     print("\t-v level\tEnables verbose output, 1 is only info, 2 is debug")
     print("\t-s\t\t\tScrapes the enabled websites and caches the results")
+    print("\t-n\t\t\tDo not perform characterization")
     print()
     print("\tSee options.ini for scrape-able websites.")
     print()
@@ -177,18 +182,41 @@ def perform_scrape() -> bool:
         _, cache_index = get_latest_cache(cache_files)
     cache_path = OUTPUT_DIR + "\\" + OUTPUT_CACHE_BASE.replace("*", str(cache_index+1))
 
-    # Crawl scrapy sources
-    process = CrawlerProcess(settings={
+    # Crawler settings
+    crawler_settings ={
         "FEEDS": {
             cache_path: {"format": "json"},
         },
         'DOWNLOAD_DELAY': 1,
-        'LOG_LEVEL': 'WARNING',
-    })
+        'LOG_LEVEL': 'WARNING'
+    }
+    # Get a header
+    if has_browsers_file:
+        headers = random.choice(browsers.header_list)
+        crawler_settings["DEFAULT_REQUEST_HEADERS"] = headers
+        # Set custom headers for each source that has them
+        for source in pyagent.get_source_list():
+            if isinstance(source.spider, pyagent.ScrapySpider):
+                source_key = source.key
+                if source_key in browsers.headers_per_source:
+                    source_header = random.choice(browsers.headers_per_source[source_key])
+                    if not source.spider.scrapy_spider.custom_settings:
+                        source.spider.scrapy_spider.custom_settings = {}
+                    source.spider.scrapy_spider.custom_settings["DEFAULT_REQUEST_HEADERS"] = source_header
+    else:
+        logger.warning("You have not provided any headers! Your scrape requests may get blocked. Please see README for "
+                       "information.")
+        crawler_settings["USER_AGENT"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:84.0) Gecko/20100101 Firefox/84.0"
+
+    # Crawl scrapy sources
+    process = CrawlerProcess(crawler_settings)
     for source in pyagent.get_source_list():
         if isinstance(source.spider, pyagent.ScrapySpider):
-            logger.debug("Scraping source: {0} ({1})".format(source.name, source.key))
-            process.crawl(source.spider.scrapy_spider)
+            if source.key in scrape_website_list:
+                logger.debug("Scraping source: {0} ({1})".format(source.name, source.key))
+                process.crawl(source.spider.scrapy_spider)
+            else:
+                logger.debug("Skipping source: {0}".format(source.name))
     process.start()
 
     logger.info("Finished scrape of specified sources")
@@ -292,10 +320,12 @@ def load_options() -> bool:
         logger.debug("Config file {0} not found, creating default".format(CONFIG_FILE))
 
         config["scrape_websites"] = {"apartments_com": "1",
-                                     "craigslist_bos": "1"}
+                                     "craigslist_bos": "1",
+                                     "zillow": "1"}
 
         config["apartments_com"] = {"search_url": "boston-ma/2-to-3-bedrooms-under-1500/"}
         config["craigslist_bos"] = {"subdomain": "boston"}
+        config["zillow"] = {"search_url": 'boston-ma/apartments/2-bedrooms/?searchQueryState={"pagination"%%3A{}%%2C"usersSearchTerm"%%3A"Boston%%2C MA"%%2C"mapBounds"%%3A{"west"%%3A-71.24846881103517%%2C"east"%%3A-70.84678118896485%%2C"south"%%3A42.21141701120901%%2C"north"%%3A42.41528103566799}%%2C"regionSelection"%%3A[{"regionId"%%3A44269%%2C"regionType"%%3A6}]%%2C"isMapVisible"%%3Atrue%%2C"filterState"%%3A{"fsba"%%3A{"value"%%3Afalse}%%2C"fsbo"%%3A{"value"%%3Afalse}%%2C"nc"%%3A{"value"%%3Afalse}%%2C"fore"%%3A{"value"%%3Afalse}%%2C"cmsn"%%3A{"value"%%3Afalse}%%2C"auc"%%3A{"value"%%3Afalse}%%2C"pmf"%%3A{"value"%%3Afalse}%%2C"pf"%%3A{"value"%%3Afalse}%%2C"fr"%%3A{"value"%%3Atrue}%%2C"ah"%%3A{"value"%%3Atrue}%%2C"sf"%%3A{"value"%%3Afalse}%%2C"mf"%%3A{"value"%%3Afalse}%%2C"manu"%%3A{"value"%%3Afalse}%%2C"land"%%3A{"value"%%3Afalse}%%2C"tow"%%3A{"value"%%3Afalse}%%2C"beds"%%3A{"min"%%3A2%%2C"max"%%3A2}%%2C"mp"%%3A{"max"%%3A3000}%%2C"price"%%3A{"max"%%3A913943}}%%2C"isListVisible"%%3Atrue%%2C"mapZoom"%%3A12}'}
 
         config["train_data"] = {"source": "data/mbta.json"}
 
@@ -345,10 +375,14 @@ def load_options() -> bool:
             return False
         # Add to source
         source_obj = pyagent.get_source(source_key)
-        for key in config[source_key]:
-            source_obj.add_config(key, config[source_key][key])
-        if not source_obj.verify_config():
-            logger.critical("Invalid config for source {0}".format(source_key))
+        if source_obj:
+            for key in config[source_key]:
+                source_obj.add_config(key, config[source_key][key])
+            if not source_obj.verify_config():
+                logger.critical("Invalid config for source {0}".format(source_key))
+                return False
+        else:
+            logger.critical("No source with name {0}".format(source_key))
             return False
 
     return True
@@ -365,7 +399,7 @@ def main(argv) -> int:
 
     # Get command line arguments
     try:
-        opts, args = getopt.getopt(argv, "hvs", [])
+        opts, args = getopt.getopt(argv, "hvsn", [])
     except getopt.GetoptError:
         logger.critical("Invalid command line arguments.")
         print_help()
@@ -374,6 +408,7 @@ def main(argv) -> int:
     do_help = False
     do_scrape = False
     do_verbose = False
+    do_charact = True
 
     for opt, arg in opts:
         if opt == "-h":
@@ -382,6 +417,8 @@ def main(argv) -> int:
             do_verbose = True
         elif opt == "-s":
             do_scrape = True
+        elif opt == "-n":
+            do_charact = False
 
     if do_help:
         logger.debug("Showing help, no other action is performed")
@@ -398,8 +435,9 @@ def main(argv) -> int:
         if not perform_scrape():
             return 1
 
-    if not perform_characterization():
-        return 1
+    if do_charact:
+        if not perform_characterization():
+            return 1
 
     return 0
 
@@ -410,6 +448,11 @@ if __name__ == "__main__":
     print("This program comes with ABSOLUTELY NO WARRANTY.")
     print("This is free software, and you are welcome to redistribute it under certain conditions.")
     print("", flush=True)
+
+    browsers_spec = importlib.util.find_spec("browsers")
+    if browsers_spec:
+        has_browsers_file = True
+        import browsers
 
     pyagent.LocationCache.init_cache()
     ret_val = main(sys.argv[1:])
