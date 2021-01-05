@@ -25,9 +25,14 @@ import os
 import glob
 import pyagent
 import json
+import importlib
+import random
 from scrapy.crawler import CrawlerProcess
 
+has_browsers_file = False
+
 LOG_FILE = "output.log"
+PERFECT_SCORE = 0.8
 
 logger = logging.getLogger(__name__)
 log_formatter = logging.Formatter("[%(asctime)s][%(threadName)12.12s][%(levelname)5.5s] %(message)s")
@@ -40,10 +45,18 @@ OUTPUT_CACHE_BASE = "scrape_results_*.json"
 
 scrape_website_list = []
 
-housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", lower=800, upper=1500),
-                    pyagent.CriterionSqFt(name="Square Footage", key="sqft", lower=0, upper=1200, maximum=2500),
-                    pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, upper=3, minimum=2, required=True),
-                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=1, upper=2, maximum=3)]
+housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=800,
+                                            result_format=pyagent.ResultFormat.Currency, upper=1500),
+                    pyagent.CriterionSqFt(name="Square Footage", key="sqft", weight=10, lower=0,
+                                          result_format=pyagent.ResultFormat.SquareFoot, upper=1200, maximum=2500),
+                    pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, weight=50, upper=3,
+                                          result_format=pyagent.ResultFormat.Bedrooms, minimum=2, required=True),
+                    pyagent.CriterionGreater(name="Bathrooms", key="baths_str", lower=0, weight=15, upper=2,
+                                             result_format=pyagent.ResultFormat.Bathrooms, maximum=3),
+                    pyagent.CriterionLesser(name="Deposit", key="deposit", lower=0, weight=100, upper=4000,
+                                            result_format=pyagent.ResultFormat.Currency, ),
+                    pyagent.CriterionTrain(name="Train Proximity", key="coordinates", weight=50, max_distance=2,
+                                           result_format=pyagent.ResultFormat.Miles, )]
 
 
 class RegularFilter(logging.Filter):
@@ -99,6 +112,7 @@ def print_help() -> None:
     print("\t-h\t\t\tDisplays command help")
     print("\t-v level\tEnables verbose output, 1 is only info, 2 is debug")
     print("\t-s\t\t\tScrapes the enabled websites and caches the results")
+    print("\t-n\t\t\tDo not perform characterization")
     print()
     print("\tSee options.ini for scrape-able websites.")
     print()
@@ -169,18 +183,41 @@ def perform_scrape() -> bool:
         _, cache_index = get_latest_cache(cache_files)
     cache_path = OUTPUT_DIR + "\\" + OUTPUT_CACHE_BASE.replace("*", str(cache_index+1))
 
-    # Crawl scrapy sources
-    process = CrawlerProcess(settings={
+    # Crawler settings
+    crawler_settings ={
         "FEEDS": {
             cache_path: {"format": "json"},
         },
         'DOWNLOAD_DELAY': 1,
-        'LOG_LEVEL': 'WARNING',
-    })
+        'LOG_LEVEL': 'WARNING'
+    }
+    # Get a header
+    if has_browsers_file:
+        headers = random.choice(browsers.header_list)
+        crawler_settings["DEFAULT_REQUEST_HEADERS"] = headers
+        # Set custom headers for each source that has them
+        for source in pyagent.get_source_list():
+            if isinstance(source.spider, pyagent.ScrapySpider):
+                source_key = source.key
+                if source_key in browsers.headers_per_source:
+                    source_header = random.choice(browsers.headers_per_source[source_key])
+                    if not source.spider.scrapy_spider.custom_settings:
+                        source.spider.scrapy_spider.custom_settings = {}
+                    source.spider.scrapy_spider.custom_settings["DEFAULT_REQUEST_HEADERS"] = source_header
+    else:
+        logger.warning("You have not provided any headers! Your scrape requests may get blocked. Please see README for "
+                       "information.")
+        crawler_settings["USER_AGENT"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:84.0) Gecko/20100101 Firefox/84.0"
+
+    # Crawl scrapy sources
+    process = CrawlerProcess(crawler_settings)
     for source in pyagent.get_source_list():
         if isinstance(source.spider, pyagent.ScrapySpider):
-            logger.debug("Scraping source: {0} ({1})".format(source.name, source.key))
-            process.crawl(source.spider.scrapy_spider)
+            if source.key in scrape_website_list:
+                logger.debug("Scraping source: {0} ({1})".format(source.name, source.key))
+                process.crawl(source.spider.scrapy_spider)
+            else:
+                logger.debug("Skipping source: {0}".format(source.name))
     process.start()
 
     logger.info("Finished scrape of specified sources")
@@ -215,41 +252,66 @@ def perform_characterization() -> bool:
         return False
 
     # Characterize each
-    char_results = []
+    char_results_good = []      # Good apartments
+    char_results_bad = []       # Bad apartments (have a 0 in some category)
+    char_results_dq = []        # Disqualified apartments
+    total_houses = len(housing_data)
     for housing in housing_data:
         result_dict = {
             "address": housing["address"],
             "link": housing["link"],
             "source": housing["source"],
+            "unit": housing["unit"],
             "criterion": []
         }
         total = 0
+        possible_points = 0
         for criterion in housing_criteria:
             if criterion.key not in housing:
                 logger.error("Invalid key '{0}' for criterion {1}".format(criterion.key, criterion.name))
             result = criterion.evaluate(housing[criterion.key])
-            result_dict["criterion"].append([criterion, result, housing[criterion.key]])
+            result_dict["criterion"].append([criterion, result, criterion.result_info])
             if result != -1:
                 total += result
+                possible_points += criterion.weight
         result_dict["TOTAL"] = total
-        char_results.append(result_dict)
+        if possible_points > 0:
+            result_dict["SCORE"] = total / possible_points
+        else:
+            result_dict["SCORE"] = 0.0
+        result_dict["POSSIBLE_POINTS"] = possible_points
+        if result_dict["SCORE"] > PERFECT_SCORE:
 
-    char_results = sorted(char_results, key=lambda x: x["TOTAL"])
-    for result in char_results:
-        logger.info(result["address"])
-        logger.info("  " + result["link"])
-        logger.info("  Source: " + result["source"])
-        for criterion_data in result["criterion"]:
-            criterion = criterion_data[0]
-            result_val = criterion_data[1]
-            key_val = criterion_data[2]
-            if result != -1:
-                logger.info("  {0:16.16s} = {1:2.2f}\t({2})".format(criterion.name, result_val, key_val))
-            else:
-                logger.info("  {0:16.16s} = ----\t({1})".format(criterion.name, key_val))
-        logger.info("  {0:16.16s} = {1:2.2f}".format("TOTAL", result["TOTAL"]))
+            char_results_good.append(result_dict)
+        else:
+            char_results_bad.append(result_dict)
 
-    logger.info("\nResults Printed Bottom Down (Best Result at Bottom)")
+    def print_results(result_list, name):
+        result_list = sorted(result_list, key=lambda x: x["SCORE"])
+        logger.info("Printing Results for {0}:".format(name))
+        for result in result_list:
+            logger.info("{0}\tUnit {1}".format(result["address"], result["unit"]))
+            logger.info("  " + result["link"])
+            logger.info("  Source: " + result["source"])
+            for criterion_data in result["criterion"]:
+                criterion = criterion_data[0]
+                result_val = criterion_data[1]
+                key_val = criterion_data[2]
+                if result_val != -1:
+                    logger.info("  {0:16.16s} = {1:2.2f}\t({2})".format(criterion.name, result_val, key_val))
+                else:
+                    logger.info("  {0:16.16s} = ----\t({1})".format(criterion.name, key_val))
+            logger.info("  {0:16.16s} = {1:2.2f}/{2}".format("POSSIBLE POINTS", result["TOTAL"], result["POSSIBLE_POINTS"]))
+            logger.info("  {0:16.16s} = {1:2.2f}%".format("SCORE", result["SCORE"]*100))
+
+        logger.info("\nResults Printed Bottom Down (Best Result at Bottom)\n")
+
+    print_results(char_results_bad, "Okay Housing")
+    print_results(char_results_good, "Perfect Housing")
+
+    logger.info("Characterized {0} Entries of Housing Data".format(total_houses))
+    logger.info("  Of those entries, {0} were considered PERFECT and {1} were considered OKAY".format(
+        len(char_results_good), len(char_results_bad)))
 
     return True
 
@@ -264,10 +326,14 @@ def load_options() -> bool:
         logger.debug("Config file {0} not found, creating default".format(CONFIG_FILE))
 
         config["scrape_websites"] = {"apartments_com": "1",
-                                     "craigslist_bos": "1"}
+                                     "craigslist_bos": "1",
+                                     "zillow": "1"}
 
         config["apartments_com"] = {"search_url": "boston-ma/2-to-3-bedrooms-under-1500/"}
         config["craigslist_bos"] = {"subdomain": "boston"}
+        config["zillow"] = {"search_url": 'boston-ma/apartments/2-bedrooms/?searchQueryState={"pagination"%%3A{}%%2C"usersSearchTerm"%%3A"Boston%%2C MA"%%2C"mapBounds"%%3A{"west"%%3A-71.24846881103517%%2C"east"%%3A-70.84678118896485%%2C"south"%%3A42.21141701120901%%2C"north"%%3A42.41528103566799}%%2C"regionSelection"%%3A[{"regionId"%%3A44269%%2C"regionType"%%3A6}]%%2C"isMapVisible"%%3Atrue%%2C"filterState"%%3A{"fsba"%%3A{"value"%%3Afalse}%%2C"fsbo"%%3A{"value"%%3Afalse}%%2C"nc"%%3A{"value"%%3Afalse}%%2C"fore"%%3A{"value"%%3Afalse}%%2C"cmsn"%%3A{"value"%%3Afalse}%%2C"auc"%%3A{"value"%%3Afalse}%%2C"pmf"%%3A{"value"%%3Afalse}%%2C"pf"%%3A{"value"%%3Afalse}%%2C"fr"%%3A{"value"%%3Atrue}%%2C"ah"%%3A{"value"%%3Atrue}%%2C"sf"%%3A{"value"%%3Afalse}%%2C"mf"%%3A{"value"%%3Afalse}%%2C"manu"%%3A{"value"%%3Afalse}%%2C"land"%%3A{"value"%%3Afalse}%%2C"tow"%%3A{"value"%%3Afalse}%%2C"beds"%%3A{"min"%%3A2%%2C"max"%%3A2}%%2C"mp"%%3A{"max"%%3A3000}%%2C"price"%%3A{"max"%%3A913943}}%%2C"isListVisible"%%3Atrue%%2C"mapZoom"%%3A12}'}
+
+        config["train_data"] = {"source": "data/mbta.json"}
 
         with open(CONFIG_FILE, "w") as configfile:
             config.write(configfile)
@@ -281,12 +347,31 @@ def load_options() -> bool:
     if config.has_section("scrape_websites"):
         scrape_sites = config["scrape_websites"]
         for key in scrape_sites:
-            if pyagent.get_source(key):
-                scrape_website_list.append(key)
-            else:
-                logger.warning("Unknown source key {0}".format(key))
+            if config["scrape_websites"][key] == "1":
+                if pyagent.get_source(key):
+                    scrape_website_list.append(key)
+                else:
+                    logger.warning("Unknown source key {0}".format(key))
     else:
         logger.critical("Config file missing section [scrape_websites]")
+        return False
+
+    if config.has_option("train_data", "source"):
+        # Load train data
+        train_source = config["train_data"]["source"]
+        logger.debug("Loading train data from {0}".format(train_source))
+        try:
+            with open(train_source, "r") as train_file:
+                train_data = json.load(train_file)
+        except OSError as e:
+            logger.critical("Failed to load train data from {0}: {1}".format(train_source, e))
+            return False
+        except json.JSONDecodeError as e:
+            logger.critical("Failed to decode train data from {0}: {1}".format(train_source, e))
+            return False
+        pyagent.set_train_data(train_data)
+    else:
+        logger.critical("Missing train data!")
         return False
 
     # Get settings for each source
@@ -296,10 +381,14 @@ def load_options() -> bool:
             return False
         # Add to source
         source_obj = pyagent.get_source(source_key)
-        for key in config[source_key]:
-            source_obj.add_config(key, config[source_key][key])
-        if not source_obj.verify_config():
-            logger.critical("Invalid config for source {0}".format(source_key))
+        if source_obj:
+            for key in config[source_key]:
+                source_obj.add_config(key, config[source_key][key])
+            if not source_obj.verify_config():
+                logger.critical("Invalid config for source {0}".format(source_key))
+                return False
+        else:
+            logger.critical("No source with name {0}".format(source_key))
             return False
 
     return True
@@ -316,7 +405,7 @@ def main(argv) -> int:
 
     # Get command line arguments
     try:
-        opts, args = getopt.getopt(argv, "hvs", [])
+        opts, args = getopt.getopt(argv, "hvsn", [])
     except getopt.GetoptError:
         logger.critical("Invalid command line arguments.")
         print_help()
@@ -325,6 +414,7 @@ def main(argv) -> int:
     do_help = False
     do_scrape = False
     do_verbose = False
+    do_charact = True
 
     for opt, arg in opts:
         if opt == "-h":
@@ -333,6 +423,8 @@ def main(argv) -> int:
             do_verbose = True
         elif opt == "-s":
             do_scrape = True
+        elif opt == "-n":
+            do_charact = False
 
     if do_help:
         logger.debug("Showing help, no other action is performed")
@@ -349,8 +441,9 @@ def main(argv) -> int:
         if not perform_scrape():
             return 1
 
-    if not perform_characterization():
-        return 1
+    if do_charact:
+        if not perform_characterization():
+            return 1
 
     return 0
 
@@ -361,6 +454,11 @@ if __name__ == "__main__":
     print("This program comes with ABSOLUTELY NO WARRANTY.")
     print("This is free software, and you are welcome to redistribute it under certain conditions.")
     print("", flush=True)
+
+    browsers_spec = importlib.util.find_spec("browsers")
+    if browsers_spec:
+        has_browsers_file = True
+        import browsers
 
     pyagent.LocationCache.init_cache()
     ret_val = main(sys.argv[1:])

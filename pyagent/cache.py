@@ -76,6 +76,16 @@ class LocationCache:
         return None
 
     @staticmethod
+    def entry_present(addr: str) -> bool:
+        """
+        Checks if there is an entry in the cache for the given address
+        :param addr: The address to look up
+        :returns: True if an entry was found, false if otherwise
+        """
+        return addr in LocationCache.location_data
+
+
+    @staticmethod
     def add_to_cache(addr: str, location: (float, float)) -> None:
         """
         Adds a location to the cache

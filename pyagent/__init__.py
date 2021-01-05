@@ -22,12 +22,15 @@ from .data_source import Source
 from .spider import ScrapySpider
 from .source_apartments_com import ApartmentsComSpider
 from .source_craiglist import CraigslistSpider
+from .source_zillow import ZillowSpider
 from .cache import LocationCache
 from .criteria import (Criterion,
                        CriterionLesser,
                        CriterionGreater,
                        CriterionBeds,
-                       CriterionSqFt)
+                       CriterionSqFt,
+                       CriterionTrain,
+                       ResultFormat)
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +38,9 @@ logger = logging.getLogger(__name__)
 _source_list = [Source("apartments_com", "apartments.com", required_conf=["search_url"],
                        spider=ApartmentsComSpider()),
                 Source("craigslist_bos", "boston.craigslist.com", required_conf=["subdomain"],
-                       spider=CraigslistSpider())]
+                       spider=CraigslistSpider()),
+                Source("zillow", "zillow.com", required_conf=["search_url"],
+                       spider=ZillowSpider())]
 
 
 def get_source(key) -> Optional[Source]:
@@ -67,3 +72,11 @@ def get_source_list() -> list[Source]:
     """
     return _source_list
 
+
+def set_train_data(data) -> None:
+    """
+    Sets the train data loaded from json
+    :param data: Train data loaded from json
+    :return: Nothing
+    """
+    Criterion.train_data = data
