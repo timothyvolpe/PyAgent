@@ -114,6 +114,10 @@ class Criterion:
         return self._key
 
     @property
+    def weight(self) -> int:
+        return self._weight
+
+    @property
     def result_info(self):
         """
         Returns info about the result, such as the value that was used for the evaluation
@@ -147,15 +151,16 @@ class CriterionGreater(Criterion):
     def evaluate(self, data) -> float:
         if data is not None:
             try:
-                value = int(data)
+                value = float(data)
                 self._result_info = Criterion.format_result(self._result_format, value)
                 if self._maximum is not None and value > self._maximum:
                     return -1
                 return Criterion.map_to_range(value, self._lower, self._upper, self._weight)
             except ValueError:
                 self._result_info = data
-                return 0
-        return 0
+                return -1
+        else:
+            return -1
 
 
 class CriterionLesser(Criterion):
@@ -183,15 +188,16 @@ class CriterionLesser(Criterion):
     def evaluate(self, data) -> float:
         if data is not None:
             try:
-                value = int(data)
+                value = float(data)
                 self._result_info = Criterion.format_result(self._result_format, value)
                 if self._minimum is not None and value < self._minimum:
                     return -1
                 return self._weight - Criterion.map_to_range(value, self._lower, self._upper, self._weight)
             except ValueError:
                 self._result_info = data
-                return 0
-        return 0
+                return -1
+        else:
+            return -1
 
 
 class CriterionSqFt(CriterionGreater):
@@ -248,6 +254,8 @@ class CriterionTrain(Criterion):
         # Find closest train
         closest_station = []
         closest_distance = None
+        if not data:
+            return -1
         for station in Criterion.train_data:
             distance = haversine.haversine(station["coords"], data, unit=haversine.Unit.MILES)
             if closest_distance is None:

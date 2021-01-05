@@ -32,6 +32,7 @@ from scrapy.crawler import CrawlerProcess
 has_browsers_file = False
 
 LOG_FILE = "output.log"
+PERFECT_SCORE = 0.8
 
 logger = logging.getLogger(__name__)
 log_formatter = logging.Formatter("[%(asctime)s][%(threadName)12.12s][%(levelname)5.5s] %(message)s")
@@ -264,25 +265,29 @@ def perform_characterization() -> bool:
             "criterion": []
         }
         total = 0
-        is_bad = False
+        possible_points = 0
         for criterion in housing_criteria:
             if criterion.key not in housing:
                 logger.error("Invalid key '{0}' for criterion {1}".format(criterion.key, criterion.name))
             result = criterion.evaluate(housing[criterion.key])
             result_dict["criterion"].append([criterion, result, criterion.result_info])
             if result != -1:
-                if result == 0:
-                    is_bad = True
                 total += result
+                possible_points += criterion.weight
         result_dict["TOTAL"] = total
-        if not is_bad:
+        if possible_points > 0:
+            result_dict["SCORE"] = total / possible_points
+        else:
+            result_dict["SCORE"] = 0.0
+        result_dict["POSSIBLE_POINTS"] = possible_points
+        if result_dict["SCORE"] > PERFECT_SCORE:
 
             char_results_good.append(result_dict)
         else:
             char_results_bad.append(result_dict)
 
     def print_results(result_list, name):
-        result_list = sorted(result_list, key=lambda x: x["TOTAL"])
+        result_list = sorted(result_list, key=lambda x: x["SCORE"])
         logger.info("Printing Results for {0}:".format(name))
         for result in result_list:
             logger.info("{0}\tUnit {1}".format(result["address"], result["unit"]))
@@ -292,11 +297,12 @@ def perform_characterization() -> bool:
                 criterion = criterion_data[0]
                 result_val = criterion_data[1]
                 key_val = criterion_data[2]
-                if result != -1:
+                if result_val != -1:
                     logger.info("  {0:16.16s} = {1:2.2f}\t({2})".format(criterion.name, result_val, key_val))
                 else:
                     logger.info("  {0:16.16s} = ----\t({1})".format(criterion.name, key_val))
-            logger.info("  {0:16.16s} = {1:2.2f}".format("TOTAL", result["TOTAL"]))
+            logger.info("  {0:16.16s} = {1:2.2f}/{2}".format("POSSIBLE POINTS", result["TOTAL"], result["POSSIBLE_POINTS"]))
+            logger.info("  {0:16.16s} = {1:2.2f}%".format("SCORE", result["SCORE"]*100))
 
         logger.info("\nResults Printed Bottom Down (Best Result at Bottom)\n")
 

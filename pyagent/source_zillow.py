@@ -23,7 +23,6 @@ import geopy
 import geopy.geocoders as gc
 from .spider import ScrapySpider, BaseSpider
 from .cache import LocationCache
-from scrapy.shell import inspect_response
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +60,17 @@ class ZillowSpiderWorker(scrapy.Spider):
         self.download_delay = 5
 
     def parse(self, response):
-        #inspect_response(response, self)
         housing_list = response.css("ul.photo-cards")
-        print(response.request.headers)
         if not housing_list:
             logger.error("Invalid zillow page")
         else:
             self._pages_scraped += 1
             list_cards = housing_list[0].css("article.list-card")
+            # Check to make sure details are present
+            details_item = housing_list[0].css(".list-card-details > li")
+            if not details_item:
+                logger.critical("Did not find any card details...")
+                return
             for card in list_cards:
                 address = card.css(".list-card-addr ::text").extract_first()
                 # If theres a pipe in the middle, use the right side
@@ -131,6 +133,7 @@ class ZillowSpiderWorker(scrapy.Spider):
                 for idx, label in enumerate(detail_tokens):
                     if len(label) <= 0:
                         continue
+                    label = label.replace(",", "")
                     if label == "bds" and idx != 0:
                         try:
                             bed_count = int(detail_tokens[idx-1])
@@ -162,15 +165,15 @@ class ZillowSpiderWorker(scrapy.Spider):
 
                 yield {
                     "address": address,
-                    "neighborhood": "",
+                    "neighborhood": None,
                     "rent": price if price else rent,
-                    "deposit": "",
+                    "deposit": None,
                     "sqft": sqft,
                     "beds": bed_count,
                     "baths_str": bath_count,
-                    "unit": "",
+                    "unit": None,
                     "coordinates": location,
-                    "additional": "",
+                    "additional": None,
                     "link": link,
                     "source": "zillow.com"
                 }
@@ -195,7 +198,6 @@ class ZillowSpiderWorker(scrapy.Spider):
                                         pagination_query = '"pagination":{{"currentPage":{0}}},'.format(next_page)
                                         idx = self._first_search.find("/?searchQueryState={")+len("/?searchQueryState={")
                                         new_url = self._first_search[:idx] + pagination_query + self._first_search[idx:]
-                                        print(new_url)
-                                        request = scrapy.Request(url=new_url)
+                                        request = scrapy.Request(url=new_url, headers=response.request.headers, meta={'dont_merge_cookies': True})
                                         yield request
                                         return

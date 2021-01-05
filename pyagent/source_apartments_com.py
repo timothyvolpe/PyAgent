@@ -65,6 +65,8 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         self._apartment_index = 0
         self._last_nom_reqest = 0
 
+        self.handle_httpstatus_list = [400]
+
     def parse_apartment(self, response):
         if self._apartment_index >= MAX_APARTMENT_SCRAPES != 0:
             return
@@ -130,9 +132,14 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             baths_str = unit.css(".rentalGridRow > .baths > .longText ::text").extract_first()
             if baths_str:
                 baths_str = BaseSpider.cleanup_garbage(baths_str)
+                half_bath = False
+                if '½' in baths_str:
+                    half_bath = True
                 integers = re.search(r'\d+', baths_str)
                 if integers:
-                    baths_val = int(integers.group())
+                    baths_val = float(integers.group())
+                    if half_bath:
+                        baths_val += 0.5
                     baths_str = str(baths_val)
 
             location = self._locations[self._apartment_index]
@@ -158,10 +165,12 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         if self._apartment_index+1 < len(self._apartment_urls):
             self._apartment_index += 1
             next_page_url = self._apartment_urls[self._apartment_index]
-            request = scrapy.Request(url=next_page_url, callback=self.parse_apartment)
+            request = scrapy.Request(url=next_page_url, callback=self.parse_apartment, meta={'dont_merge_cookies': True})
             yield request
 
     def parse(self, response):
+        if response.status == 400:
+            print(response.request.headers)
         # Get number of pages
         page_range_selector = ".searchResults > .pageRange ::text"
         page_range = response.css(page_range_selector).extract_first()
@@ -205,7 +214,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             # Check if address is in cache
             location = LocationCache.get_location(addr_title)
             # Make sure address is valid
-            if location is None and not LocationCache.entry_present(address):
+            if location is None and not LocationCache.entry_present(addr_title):
                 time_since_last = (time.time() - self._last_nom_reqest)
                 if time_since_last < BaseSpider.NOMINATIM_REQUEST_DELAY:
                     time.sleep(BaseSpider.NOMINATIM_REQUEST_DELAY - time_since_last)
@@ -232,12 +241,12 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         # Go to next page if possible
         if page_current < page_count and DO_MULTIPLE_PAGES:
             next_page_url = self.start_urls[0] + "{0}/".format(page_current+1)
-            request = scrapy.Request(url=next_page_url)
+            request = scrapy.Request(url=next_page_url, meta={'dont_merge_cookies': True})
             yield request
         # Start parsing individual apartments
         else:
             self._apartment_index = 0
             next_page_url = self._apartment_urls[self._apartment_index]
-            request = scrapy.Request(url=next_page_url, callback=self.parse_apartment)
+            request = scrapy.Request(url=next_page_url, callback=self.parse_apartment, meta={'dont_merge_cookies': True})
             yield request
 
