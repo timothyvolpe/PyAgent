@@ -24,6 +24,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import glob
 import pyagent
+import pyagentui
 import json
 import importlib
 import random
@@ -106,13 +107,14 @@ def print_help() -> None:
     :return: None
     """
     print()
-    print("Usage: pyagent [-h] [-v level] [-s]")
+    print("Usage: pyagent [-h] [-v level] [-s] [--gui]")
     print()
     print("Options:")
     print("\t-h\t\t\tDisplays command help")
     print("\t-v level\tEnables verbose output, 1 is only info, 2 is debug")
     print("\t-s\t\t\tScrapes the enabled websites and caches the results")
     print("\t-n\t\t\tDo not perform characterization")
+    print("\t--gui\t\tOpen the characterization UI. Mutually exclusive with scraping.")
     print()
     print("\tSee options.ini for scrape-able websites.")
     print()
@@ -134,7 +136,7 @@ def enable_verbose() -> None:
     logger.debug("Using verbose output")
 
 
-def get_latest_cache(caches: list[str]) -> (str, int):
+def get_latest_cache(caches: list) -> (str, int):
     """
     Takes a list of cache file names and returns the one with the highest index
     :param caches: List of cache file names
@@ -394,6 +396,15 @@ def load_options() -> bool:
     return True
 
 
+def open_gui() -> None:
+    """
+    Opens the PyAgent GUI
+    :return: Nothing
+    """
+    logger.info("Opening graphical user inferface...")
+    pyagentui.open_gui()
+
+
 def main(argv) -> int:
     """
     Program main entry point. Parses command line arguments.
@@ -405,7 +416,7 @@ def main(argv) -> int:
 
     # Get command line arguments
     try:
-        opts, args = getopt.getopt(argv, "hvsn", [])
+        opts, args = getopt.getopt(argv, "hvsn", ["gui"])
     except getopt.GetoptError:
         logger.critical("Invalid command line arguments.")
         print_help()
@@ -415,6 +426,7 @@ def main(argv) -> int:
     do_scrape = False
     do_verbose = False
     do_charact = True
+    do_gui = False
 
     for opt, arg in opts:
         if opt == "-h":
@@ -425,6 +437,8 @@ def main(argv) -> int:
             do_scrape = True
         elif opt == "-n":
             do_charact = False
+        elif opt == "--gui":
+            do_gui = True
 
     if do_help:
         logger.debug("Showing help, no other action is performed")
@@ -432,6 +446,9 @@ def main(argv) -> int:
         return 0
     if do_verbose:
         enable_verbose()
+    if do_gui:
+        open_gui()
+        return 1
 
     # Load the options file
     if not load_options():

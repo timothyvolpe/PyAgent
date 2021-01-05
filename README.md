@@ -34,4 +34,11 @@ Its good to have a referral URL in there as well.
 
 ### Requirements
 
-- Python 3.9.0
+- Python 3.8.7
+- scrapy 2.4.1
+- geopy 2.1.0
+- haversine 2.3.0
+- setuptools 51.1.1
+- wheel 0.36.2
+- pywebview 3.4
+

@@ -65,7 +65,7 @@ def init_sources() -> None:
         item.init()
 
 
-def get_source_list() -> list[Source]:
+def get_source_list() -> list:
     """
     Gets the list of housing sources
     :return: List of housing sources
