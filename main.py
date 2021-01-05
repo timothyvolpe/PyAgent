@@ -28,6 +28,7 @@ import pyagentui
 import json
 import importlib
 import random
+import haversine
 from scrapy.crawler import CrawlerProcess
 
 has_browsers_file = False
@@ -43,8 +44,10 @@ regular_filter = None
 CONFIG_FILE = "options.ini"
 OUTPUT_DIR = "output"
 OUTPUT_CACHE_BASE = "scrape_results_*.json"
+CHAR_OUTPUT_FILE = "output/characterization.json"
 
 scrape_website_list = []
+train_data = None
 
 housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=800,
                                             result_format=pyagent.ResultFormat.Currency, upper=1500),
@@ -165,6 +168,48 @@ def get_latest_cache(caches: list) -> (str, int):
     return max_cache_name, max_index
 
 
+def get_nearby_trains(location, radius_mi: float):
+    """
+    Returns a list of nearby trains in a radius around location
+    :param location: Location to center search radius
+    :param radius_mi: Radius of search circle in miles
+    :return: List of trains serviced at stations within radius
+    """
+    if not location:
+        return None
+    nearby_stations = {}
+    for station in train_data:
+        distance = haversine.haversine(station["coords"], location, unit=haversine.Unit.MILES)
+        if distance < radius_mi:
+            lines = station["lines"]
+            for line in lines:
+                lines_to_add = []
+                if "Commuter Rail" in line:
+                    lines_to_add = ["Commuter Rail"]
+                elif "Silver Line" in line:
+                    lines_to_add = ["Silver Line"]
+                elif "Green Line" in line:
+                    line_branches = line[line.find("(") + 1:line.find(")")]
+                    branch_tokens = line_branches.split(",")
+                    for branch in branch_tokens:
+                        lines_to_add.append("Green Line (" + branch.replace(" ", "") + ")")
+                elif "Red Line" in line:
+                    line_branches = line[line.find("(") + 1:line.find(")")]
+                    branch_tokens = line_branches.split(",")
+                    for branch in branch_tokens:
+                        lines_to_add.append("Red Line (" + branch.replace(" ", "") + ")")
+                else:
+                    lines_to_add = [line]
+
+                for add in lines_to_add:
+                    if add in nearby_stations:
+                        nearby_stations[add].append(station["name"])
+                    else:
+                        nearby_stations[add] = [station["name"]]
+
+    return nearby_stations
+
+
 def perform_scrape() -> bool:
     """
     Performs a scrape of the supported and enabled websites.
@@ -257,6 +302,7 @@ def perform_characterization() -> bool:
     char_results_good = []      # Good apartments
     char_results_bad = []       # Bad apartments (have a 0 in some category)
     char_results_dq = []        # Disqualified apartments
+    char_output = {}            # Dumps to JSON file for GUI
     total_houses = len(housing_data)
     for housing in housing_data:
         result_dict = {
@@ -264,7 +310,16 @@ def perform_characterization() -> bool:
             "link": housing["link"],
             "source": housing["source"],
             "unit": housing["unit"],
-            "criterion": []
+            "criterion": [],
+            "TOTAL": 0.0,
+            "SCORE": 0.0,
+            "POSSIBLE_POINTS": 0.0
+        }
+        output_data = {
+            "score": 0.0,
+            "total": 0.0,
+            "possible": 0.0,
+            "trains": []
         }
         total = 0
         possible_points = 0
@@ -282,6 +337,14 @@ def perform_characterization() -> bool:
         else:
             result_dict["SCORE"] = 0.0
         result_dict["POSSIBLE_POINTS"] = possible_points
+
+        # Add to characterization data
+        output_data["score"] = result_dict["SCORE"]
+        output_data["total"] = result_dict["TOTAL"]
+        output_data["possible"] = result_dict["POSSIBLE_POINTS"]
+        output_data["trains"] = get_nearby_trains(housing["coordinates"], radius_mi=0.5)
+        char_output[housing["address"]] = output_data
+
         if result_dict["SCORE"] > PERFECT_SCORE:
 
             char_results_good.append(result_dict)
@@ -311,6 +374,13 @@ def perform_characterization() -> bool:
     print_results(char_results_bad, "Okay Housing")
     print_results(char_results_good, "Perfect Housing")
 
+    # Write characterization output
+    try:
+        with open(CHAR_OUTPUT_FILE, "w") as output_file:
+            json.dump(char_output, output_file)
+    except OSError as e:
+        logger.error("Failed to write characterization.json: {0}".format(e))
+
     logger.info("Characterized {0} Entries of Housing Data".format(total_houses))
     logger.info("  Of those entries, {0} were considered PERFECT and {1} were considered OKAY".format(
         len(char_results_good), len(char_results_bad)))
@@ -323,6 +393,7 @@ def load_options() -> bool:
     Loads the options file. If it does not exist, a default one will be created.
     :return: True if successfully loaded or created the file, false if otherwise.
     """
+    global train_data
     config = configparser.ConfigParser()
     if not os.path.isfile(CONFIG_FILE):
         logger.debug("Config file {0} not found, creating default".format(CONFIG_FILE))
@@ -402,7 +473,21 @@ def open_gui() -> None:
     :return: Nothing
     """
     logger.info("Opening graphical user inferface...")
-    pyagentui.open_gui()
+
+    # Check for cached scrape data
+    cache_files = glob.glob(OUTPUT_DIR + "/" + OUTPUT_CACHE_BASE)
+    json_file_path = ""
+    if not cache_files:
+        logger.info("There was not cached housing data to characterize. Try running pyagent -s to scrape data.")
+    else:
+        # Get the latest cache
+        cache_name, cache_index = get_latest_cache(cache_files)
+        if cache_name == "":
+            logger.info("Could not find valid housing data cache. Try running pyagent -s to scrape data.")
+        else:
+            json_file_path = OUTPUT_DIR + "/" + cache_name
+
+    pyagentui.open_gui(json_file=json_file_path, char_file=CHAR_OUTPUT_FILE)
 
 
 def main(argv) -> int:

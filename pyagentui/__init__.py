@@ -19,10 +19,12 @@
 from .ui import WebUI
 
 
-def open_gui() -> None:
+def open_gui(json_file: str, char_file: str) -> None:
     """
     Opens PyAgent gui
+    :param json_file: The path to the JSON file
+    :param char_file: The path to the characterization data JSON file
     :return: Nothing
     """
     ui = WebUI()
-    ui.open_webview()
+    ui.open_webview(json_file=json_file, char_file=char_file)
