@@ -33,21 +33,19 @@ function postErrorAlert(message) {
     $("#master-error-alert").show();
 }
 
+window.addEventListener('pywebviewready', () => {
+    pywebview.api.ready().then(showResponse);
+});
+
 window.onload = function(e) {
     // Load the latest scrape data
     $("#master-error-alert").hide();
     $("#address-table").hide();
 
-    wait_for_pywebview();
+    $("#address-table > thead > tr > th > a").click(function() {
+        console.log("Sort header");
+    });
 };
-
-async function wait_for_pywebview()
-{
-    while(typeof pywebview == "undefined") {
-        await sleep(200);
-    }
-    pywebview.api.ready().then(showResponse);
-}
 
 var json_housing_data = null;
 var json_char_data = null;
@@ -62,7 +60,7 @@ function finished_json_load(housing_json, char_json)
     if(json_housing_data !== null && json_char_data !== null)
     {
         json_housing_data.forEach(function(item) {
-            char_data = json_char_data[item["address"]];
+            char_data = json_char_data[item["uid"]];
             if( char_data ) {
                 // Determine score color
                 var color = "";

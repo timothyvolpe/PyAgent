@@ -101,7 +101,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                 rent_str = BaseSpider.cleanup_garbage(rent_str)
                 try:
                     rent_val = int(rent_str.replace("$", "").replace(",", ""))
-                    rent_str = str(rent_val)
+                    rent_str = rent_val
                 except ValueError:
                     pass
             deposit_str = unit.css(".rentalGridRow > .deposit ::text").extract_first()
@@ -109,7 +109,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                 deposit_str = BaseSpider.cleanup_garbage(deposit_str)
                 try:
                     deposit_val = int(deposit_str.replace("$", "").replace(",", ""))
-                    deposit_str = str(deposit_val)
+                    deposit_str = deposit_val
                 except ValueError:
                     pass
             sqft_str = unit.css(".rentalGridRow > .sqft ::text").extract_first()
@@ -117,7 +117,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                 sqft_str = BaseSpider.cleanup_garbage(sqft_str)
                 try:
                     sqft_val = int(sqft_str.replace(",", "").replace("Sq Ft", ""))
-                    sqft_str = str(sqft_val)
+                    sqft_str = sqft_val
                 except ValueError:
                     pass
 
@@ -127,7 +127,7 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                 integers = re.search(r'\d+', beds_str)
                 if integers:
                     beds_val = int(integers.group())
-                    beds_str = str(beds_val)
+                    beds_str = beds_val
 
             baths_str = unit.css(".rentalGridRow > .baths > .longText ::text").extract_first()
             if baths_str:
@@ -140,13 +140,14 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                     baths_val = float(integers.group())
                     if half_bath:
                         baths_val += 0.5
-                    baths_str = str(baths_val)
+                    baths_str = baths_val
 
             location = self._locations[self._apartment_index]
             address = self._addresses[self._apartment_index]
             additional_tags = self._additional_tags[self._apartment_index]
 
             yield {
+                "uid": BaseSpider.get_next_uid(),
                 "address": address,
                 "neighborhood": property_neighborhood,
                 "rent": rent_str,

@@ -304,8 +304,10 @@ def perform_characterization() -> bool:
     char_results_dq = []        # Disqualified apartments
     char_output = {}            # Dumps to JSON file for GUI
     total_houses = len(housing_data)
+    used_uids = []
     for housing in housing_data:
         result_dict = {
+            "uid": -1,
             "address": housing["address"],
             "link": housing["link"],
             "source": housing["source"],
@@ -316,6 +318,7 @@ def perform_characterization() -> bool:
             "POSSIBLE_POINTS": 0.0
         }
         output_data = {
+            "address": "",
             "score": 0.0,
             "total": 0.0,
             "possible": 0.0,
@@ -337,13 +340,19 @@ def perform_characterization() -> bool:
         else:
             result_dict["SCORE"] = 0.0
         result_dict["POSSIBLE_POINTS"] = possible_points
+        result_dict["uid"] = housing["uid"]
+        if housing["uid"] in used_uids:
+            logger.error("UID {0} has already been used!".format(used_uids))
+        else:
+            used_uids.append(housing["uid"])
 
         # Add to characterization data
+        output_data["address"] = housing["address"]
         output_data["score"] = result_dict["SCORE"]
         output_data["total"] = result_dict["TOTAL"]
         output_data["possible"] = result_dict["POSSIBLE_POINTS"]
         output_data["trains"] = get_nearby_trains(housing["coordinates"], radius_mi=0.5)
-        char_output[housing["address"]] = output_data
+        char_output[housing["uid"]] = output_data
 
         if result_dict["SCORE"] > PERFECT_SCORE:
 
