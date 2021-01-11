@@ -29,6 +29,8 @@ import json
 import importlib
 import random
 import haversine
+import hashlib
+from base64 import b64encode
 from scrapy.crawler import CrawlerProcess
 
 has_browsers_file = False
@@ -77,6 +79,15 @@ class VerboseFilter(logging.Filter):
     """
     def filter(self, record):
         return (record.levelno == logging.INFO or record.levelno == logging.WARNING) and "scrapy" not in record.name
+
+
+def generate_uid(address, unit) -> str:
+    s = b64encode(address.encode())
+    unit = str(unit)
+    if unit is None:
+        unit = "0"
+    p = b64encode(unit.encode())
+    return hashlib.sha256(s + p).hexdigest()
 
 
 def setup_logger():
@@ -352,7 +363,12 @@ def perform_characterization() -> bool:
         output_data["total"] = result_dict["TOTAL"]
         output_data["possible"] = result_dict["POSSIBLE_POINTS"]
         output_data["trains"] = get_nearby_trains(housing["coordinates"], radius_mi=0.5)
-        char_output[housing["uid"]] = output_data
+
+        hash_uid = generate_uid(housing["address"], housing["unit"])
+        char_output[hash_uid] = {
+            "housing_data": housing,
+            "char_output": output_data,
+        }
 
         if result_dict["SCORE"] > PERFECT_SCORE:
 
@@ -380,8 +396,8 @@ def perform_characterization() -> bool:
 
         logger.info("\nResults Printed Bottom Down (Best Result at Bottom)\n")
 
-    print_results(char_results_bad, "Okay Housing")
-    print_results(char_results_good, "Perfect Housing")
+    #print_results(char_results_bad, "Okay Housing")
+    #print_results(char_results_good, "Perfect Housing")
 
     # Write characterization output
     try:
@@ -390,7 +406,7 @@ def perform_characterization() -> bool:
     except OSError as e:
         logger.error("Failed to write characterization.json: {0}".format(e))
 
-    logger.info("Characterized {0} Entries of Housing Data".format(total_houses))
+    logger.info("\nCharacterized {0} Entries of Housing Data".format(total_houses))
     logger.info("  Of those entries, {0} were considered PERFECT and {1} were considered OKAY".format(
         len(char_results_good), len(char_results_bad)))
 
@@ -476,27 +492,21 @@ def load_options() -> bool:
     return True
 
 
-def open_gui() -> None:
+def open_gui() -> bool:
     """
     Opens the PyAgent GUI
     :return: Nothing
     """
     logger.info("Opening graphical user inferface...")
 
-    # Check for cached scrape data
-    cache_files = glob.glob(OUTPUT_DIR + "/" + OUTPUT_CACHE_BASE)
-    json_file_path = ""
-    if not cache_files:
-        logger.info("There was not cached housing data to characterize. Try running pyagent -s to scrape data.")
-    else:
-        # Get the latest cache
-        cache_name, cache_index = get_latest_cache(cache_files)
-        if cache_name == "":
-            logger.info("Could not find valid housing data cache. Try running pyagent -s to scrape data.")
-        else:
-            json_file_path = OUTPUT_DIR + "/" + cache_name
+    # Check for characterization data
+    if not os.path.exists(CHAR_OUTPUT_FILE):
+        logger.error("There was no characterization data. Run pyagent.py without arguments to generate "
+                     "characterization data.")
+        return False
 
-    pyagentui.open_gui(json_file=json_file_path, char_file=CHAR_OUTPUT_FILE)
+    pyagentui.open_gui(char_file=CHAR_OUTPUT_FILE)
+    return True
 
 
 def main(argv) -> int:
@@ -541,8 +551,9 @@ def main(argv) -> int:
     if do_verbose:
         enable_verbose()
     if do_gui:
-        open_gui()
-        return 1
+        if not open_gui():
+            return 1
+        return 0
 
     # Load the options file
     if not load_options():

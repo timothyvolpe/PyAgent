@@ -24,14 +24,13 @@ class WebUI:
     def __init__(self):
         pass
 
-    def open_webview(self, json_file: str, char_file: str):
+    def open_webview(self, char_file: str):
         """
         Opens the pywebview window
-        :param json_file: The path to the scraped data JSON file
         :param char_file: The path to the characterization data JSON file
         :return:
         """
-        api = WebAPI(json_file, char_file)
+        api = WebAPI(char_file)
         window = webview.create_window("PyAgent", "web/index.html", width=1600, height=900, js_api=api)
         api.window = window
         webview.start(debug=True, gui="edgechromium", http_server=True)

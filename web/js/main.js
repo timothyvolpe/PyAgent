@@ -19,6 +19,8 @@
 const DATA_FILE = "data/scraped_data.json"
 const CHAR_FILE = "data/characterization.json"
 
+let loaded_char_data = null;
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -33,50 +35,79 @@ function postErrorAlert(message) {
     $("#master-error-alert").show();
 }
 
+function addToList(is_fav, hash, row, data)
+{
+    var message = "Moved to Rejected";
+    var typeClass = "rej-row";
+    if(is_fav) {
+        message = "Moved to Favorites";
+        typeClass = "fav-row";
+    }
+
+    const undo_row = `
+        <tr class="undo-row ${typeClass}" hash="${hash}">
+            <td colspan="9"><strong><i>${message} - ${data["housing_data"]["address"]}</i></strong></td>
+            <td>
+                <div class="undo-btn-group btn-group btn-group-xs" role="group" aria-label="...">
+                    <button type="button ${typeClass}" class="undo-button btn btn-warning btn-sm">Undo</button>
+                </div>
+            </td>
+        </tr>
+    `;
+    var row_element = $(undo_row);
+    $(row_element).find(".undo-button").click(function() {
+        var row = $(this).closest("tr");
+        var hash = $(row).attr("hash");
+        var data = loaded_char_data[hash];
+
+        if(is_fav) {
+            pywebview.api.remove_from_favorites(hash);
+        }
+        else {
+            pywebview.api.remove_from_rejections(hash);
+        }
+
+        var new_row = create_table_row(hash, data.char_output, data.housing_data);
+        $(row).replaceWith(new_row);
+        setupRowButtons();
+    });
+    $(row).replaceWith(row_element);
+}
+
 function setupRowButtons() {
     $(".fav-button, .rej-button").click(function() {
         var is_fav = $(this).hasClass("fav-button");
-        var message = "Moved to Rejected";
-        var typeClass = "rej-row";
+        var row = $(this).closest("tr");
+        var hash = $(row).attr("hash");
+        var data = loaded_char_data[hash];
+
         if(is_fav) {
-            message = "Moved to Favorites";
-            typeClass = "fav-row";
+            pywebview.api.add_to_favorites(hash, data).then(function(response) {
+                if(response) {
+                    addToList(is_fav, hash, row, data);
+                }
+                else {
+                    console.log("Cannot add to favorites");
+                }
+            }).catch(showResponse);
         }
-        const undo_row = `
-            <tr class="undo-row ${typeClass}">
-                <td colspan="8"><strong><i>${message} - </i></strong></td>
-                <td>
-                    <div class="btn-group btn-group-xs" role="group" aria-label="...">
-                        <button type="button" class="undo-button btn btn-warning">Undo</button>
-                    </div>
-                </td>
-            </tr>
-        `;
-        deactivateUndoRows($(this).closest("table"));
-        $(this).closest("tr").replaceWith(undo_row);
+        else {
+            pywebview.api.add_to_rejections(hash, data).then(function(response) {
+                if(response) {
+                    addToList(is_fav, hash, row, data);
+                }
+                else {
+                    console.log("Cannot add to favorites");
+                }
+            }).catch(showResponse);
+        }
     });
 }
 
 function removeUndoRows(table) {
-
     $(table).find("tbody > tr").each(function() {
         if($(this).hasClass("undo-row")) {
             $(this).remove();
-        }
-    });
-}
-
-function deactivateUndoRows(table) {
-    $(table).find("tbody > tr").each(function() {
-        if($(this).hasClass("undo-row")) {
-            var is_fav = $(this).hasClass("fav-row");
-            var message = "Moved to Rejected";
-            if(is_fav)
-                message = "Moved to Favorites";
-            const undo_row = `
-                <td colspan="9"><i>${message}</i></td>
-            `;
-            $(this).html(undo_row);
         }
     });
 }
@@ -97,11 +128,31 @@ window.onload = function(e) {
         removeUndoRows(table);
         items = $(table).find("tbody > tr").toArray();
         desc = $(table).prop("desc");
+        is_money = $(this).parent().hasClass("sort-money");
+        is_int = $(this).parent().hasClass("sort-float");
         // Sort remaining rows
         items.sort( function(a, b) {
-            data_a = $(a).find("td")[sort_column_idx];
-            data_b = $(b).find("td")[sort_column_idx];
-            return $(data_a).text().localeCompare($(data_b).text());
+            data_a = $($(a).find("td, th")[sort_column_idx]).text();
+            data_b = $($(b).find("td, th")[sort_column_idx]).text();
+            if(is_money) {
+                data_a = parseFloat(data_a.replace('$', ''));
+                data_b = parseFloat(data_b.replace('$', ''));
+                if(data_a > data_b)
+                    return 1;
+                return -1;
+            }
+            else if(is_int) {
+                data_a = parseFloat(data_a);
+                data_b = parseFloat(data_b);
+                if(isNaN(data_a))
+                    return 1;
+                if(isNaN(data_b))
+                    return -1;
+                if(data_a > data_b)
+                    return 1;
+                return -1;
+            }
+            return data_a.localeCompare(data_b);
         });
         if(desc == true) {
             $(table).prop("desc", false);
@@ -115,109 +166,110 @@ window.onload = function(e) {
     });
 };
 
-var json_housing_data = null;
-var json_char_data = null;
-function finished_json_load(housing_json, char_json)
-{
-    if( housing_json !== null ) {
-        json_housing_data = housing_json;
+function create_table_row(hash, char_data, housing) {
+    // Determine score color
+    var color = "";
+    if( char_data["score"] < 0.33 ) {
+        color = "danger";
     }
-    if( char_json !== null ) {
-        json_char_data = char_json;
+    else if( char_data["score"] < 0.66 && char_data["score"] > 0.33 ) {
+        color = "warning";
     }
-    if(json_housing_data !== null && json_char_data !== null)
-    {
-        json_housing_data.forEach(function(item) {
-            char_data = json_char_data[item["uid"]];
-            if( char_data ) {
-                // Determine score color
-                var color = "";
-                if( char_data["score"] < 0.33 ) {
-                    color = "danger";
-                }
-                else if( char_data["score"] < 0.66 && char_data["score"] > 0.33 ) {
-                    color = "warning";
-                }
-                else {
-                    color = "success";
-                }
-                // Get trains
-                var train_elements = "";
-                if( char_data["trains"] ) {
-                    for( var key in char_data["trains"] ) {
-                        if( key == "Green Line (main)" )
-                            train_elements += "<span class='train-green badge'>&nbsp;</span>";
-                        else if( key == "Green Line (B)" )
-                            train_elements += "<span class='train-green badge'>B</span>";
-                        else if( key == "Green Line (C)" )
-                            train_elements += "<span class='train-green badge'>C</span>";
-                        else if( key == "Green Line (D)" )
-                            train_elements += "<span class='train-green badge'>D</span>";
-                        else if( key == "Green Line (E)" )
-                            train_elements += "<span class='train-green badge'>E</span>";
-                        else if( key == "Blue Line" )
-                            train_elements += "<span class='train-blue badge'>&nbsp;</span>";
-                        else if( key == "Orange Line" )
-                            train_elements += "<span class='train-orange badge'>&nbsp;</span>";
-                        else if( key == "Orange Line" )
-                            train_elements += "<span class='train-orange badge'>&nbsp;</span>";
-                        else if( key == "Red Line (main)" )
-                            train_elements += "<span class='train-red badge'>&nbsp;</span>";
-                        else if( key == "Red Line (Braintree)" )
-                            train_elements += "<span class='train-red badge'>B</span>";
-                        else if( key == "Red Line (Ashmont)" )
-                            train_elements += "<span class='train-red badge'>A</span>";
-                        else if( key == "Red Line (Mattapan)" )
-                            train_elements += "<span class='train-red badge'>M</span>";
-                        else if( key == "Commuter Rail")
-                            train_elements += "<span class='train-commuter badge'>&nbsp;</span>";
-                        else if( key == "Silver Line")
-                            train_elements += "<span class='train-silver badge'>&nbsp;</span>";
-                        else
-                            console.log("Unknown train line: " + key)
-                    }
-                }
-                // Add row
-                var table_row = `
-                    <tr>
-                        <td class="address-row">${item["address"]}</td>
-                        <td>$${item["rent"]}</td>
-                        <td>${(item["beds"] ? item["beds"] : "--")}</td>
-                        <td>${(item["baths_str"] ? item["baths_str"] : "--")}</td>
-                        <td>${train_elements}</td>
-                        <td><span class="progress-bar-${color} badge">${(char_data["score"] * 100.0).toFixed(2)}</span></td>
-                        <td>${item["source"]}</td>
-                        <td><a target="_new" href='${item["link"]}'>Visit Page<a/></td>
-                        <td>
-                            <div class="btn-group btn-group-xs" role="group" aria-label="...">
-                                <button type="button" class="fav-button btn btn-success">Favorite</button>
-                                <button type="button" class="rej-button btn btn-danger">Reject</button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-                $("tbody#address-table-body").append(table_row);
-            }
+    else {
+        color = "success";
+    }
+    // Get trains
+    var train_elements = "";
+    if( char_data["trains"] ) {
+        for( var key in char_data["trains"] ) {
+            if( key == "Green Line (main)" )
+                train_elements += "<span class='train-green badge badge-pill'>&nbsp;&nbsp;</span>";
+            else if( key == "Green Line (B)" )
+                train_elements += "<span class='train-green badge badge-pill'>B</span>";
+            else if( key == "Green Line (C)" )
+                train_elements += "<span class='train-green badge badge-pill'>C</span>";
+            else if( key == "Green Line (D)" )
+                train_elements += "<span class='train-green badge badge-pill'>D</span>";
+            else if( key == "Green Line (E)" )
+                train_elements += "<span class='train-green badge badge-pill'>E</span>";
+            else if( key == "Blue Line" )
+                train_elements += "<span class='train-blue badge badge-pill'>&nbsp;&nbsp;</span>";
+            else if( key == "Orange Line" )
+                train_elements += "<span class='train-orange badge badge-pill'>&nbsp;&nbsp;</span>";
+            else if( key == "Orange Line" )
+                train_elements += "<span class='train-orange badge badge-pill'>&nbsp;&nbsp;</span>";
+            else if( key == "Red Line (main)" )
+                train_elements += "<span class='train-red badge badge-pill'>&nbsp;&nbsp;</span>";
+            else if( key == "Red Line (Braintree)" )
+                train_elements += "<span class='train-red badge badge-pill'>B</span>";
+            else if( key == "Red Line (Ashmont)" )
+                train_elements += "<span class='train-red badge badge-pill'>A</span>";
+            else if( key == "Red Line (Mattapan)" )
+                train_elements += "<span class='train-red badge badge-pill'>M</span>";
+            else if( key == "Commuter Rail")
+                train_elements += "<span class='train-commuter badge badge-pill'>&nbsp;&nbsp;</span>";
+            else if( key == "Silver Line")
+                train_elements += "<span class='train-silver badge badge-pill'>&nbsp;&nbsp;</span>";
             else
-                console.log("Missing characterization data for '" + item["address"] + "'");
-        });
-        $("#address-table").show();
-
-        setupRowButtons();
+                console.log("Unknown train line: " + key)
+        }
     }
+    // Add row
+    var table_row = `
+        <tr hash="${hash}">
+            <th scope="col" class="address-row">${housing["address"]}</th>
+            <td>$${housing["rent"]}</td>
+            <td>${(housing["beds"] ? housing["beds"] : "--")}</td>
+            <td>${(housing["baths_str"] ? housing["baths_str"] : "--")}</td>
+            <td>${(housing["sqft"] ? housing["sqft"] : "--")}</td>
+            <td>${train_elements}</td>
+            <td><span class="badge badge-pill badge-${color}">${(char_data["score"] * 100.0).toFixed(2)}</span></td>
+            <td>${housing["source"]}</td>
+            <td><a target="_new" href='${housing["link"]}'>Visit Page<a/></td>
+            <td>
+                <div class="options-btn-group btn-group btn-group-xs" role="group" aria-label="...">
+                    <button type="button" class="fav-button btn btn-success btn-sm">Favorite</button>
+                    <button type="button" class="rej-button btn btn-danger btn-sm">Reject</button>
+                </div>
+            </td>
+        </tr>
+    `;
+
+    return table_row;
 }
 
-function load_json(housing_avail=true, char_avail=true) {
-    if(housing_avail)
-    {
-        $.getJSON(DATA_FILE, function(json_house) {
-            finished_json_load(json_house, null);
-        });
-        if(char_avail) {
-            $.getJSON(CHAR_FILE, function(json_char) {
-                finished_json_load(null, json_char);
-            });
-        }
+function finished_json_load(char_json)
+{
+    loaded_char_data = char_json
+    var source_list = [];
+    for (const [k, value] of Object.entries(char_json)) {
+        char_data = value.char_output
+        housing = value.housing_data
+        if(!source_list.includes(housing["source"]))
+            source_list.push(housing["source"]);
+        if( char_data )
+            $("tbody#address-table-body").append(create_table_row(k, char_data, housing));
+        else
+            console.log("Missing characterization data for '" + housing["address"] + "'");
+    }
+    $("#address-table").show();
+
+    // Add source options
+    source_list.forEach(function(element) {
+        const list_item = `
+            <li class="nav-item">
+                <a class="nav-link" href="#">${element}</a>
+            </li>
+        `;
+        $("#source-column").append(list_item);
+    });
+
+    setupRowButtons();
+}
+
+function load_json(char_avail=true) {
+    if(char_avail) {
+        $.getJSON(CHAR_FILE, finished_json_load);
     }
     else {
         postErrorAlert("There was no housing data! Run `pyagent.py -s` to scrape housing data.")

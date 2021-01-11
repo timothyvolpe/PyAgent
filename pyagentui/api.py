@@ -29,16 +29,18 @@ class WebAPI:
     """
     Handles communication from JavaScript to Python
     """
-    def __init__(self, json_file: str, char_file: str):
+    def __init__(self, char_file: str):
         """
         Constructor
         :param json_file: The path to the scraped data JSON file
         :param char_file: The path to the characterization data JSON file
         """
-        self._json_file = json_file
         self._char_file = char_file
         self._webview_window = None
         self._page_ready = False
+
+        self._favorites = {}
+        self._rejections = {}
 
     def reload_page(self) -> None:
         """
@@ -56,20 +58,65 @@ class WebAPI:
         logger.debug("Webpage ready!")
 
         # Copy the JSON data to the web directory
-        if self._json_file:
-            if not os.path.exists(WEB_DATA_DIR):
-                os.mkdir(WEB_DATA_DIR)
-            copyfile(self._json_file, WEB_DATA_DIR + "/scraped_data.json")
-            # Copy the characterization JSON
-            found_char_file = False
-            if self._char_file:
-                copyfile(self._char_file, WEB_DATA_DIR + "/characterization.json")
-                found_char_file = True
-            # Tell javascript there is JSON data available
-            self._webview_window.evaluate_js(f"load_json(housing_avail=true, "
-                                             f"char_avail={'true' if found_char_file else 'false'})")
+        found_char_file = False
+        if self._char_file:
+            copyfile(self._char_file, WEB_DATA_DIR + "/characterization.json")
+            found_char_file = True
+
+        # Tell javascript there is JSON data available
+        if found_char_file:
+            self._webview_window.evaluate_js(f"load_json(char_avail=true)")
         else:
-            self._webview_window.evaluate_js(f"load_json(housing_avail=false, char_avail=false)")
+            self._webview_window.evaluate_js(f"load_json(char_avail=false)")
+
+
+    def add_to_favorites(self, hash_val, data) -> bool:
+        """
+        Adds a property to the favorite lists
+        :param hash_val: The hash value of the entry
+        :param data: The housing data of the entry
+        :return: True if successfully added, false if otherwise
+        """
+        if hash_val not in self._favorites:
+            logger.info("Adding {0} to favorites".format(hash_val))
+            self._favorites[hash_val] = data
+            return True
+        else:
+            return False
+
+    def add_to_rejections(self, hash_val, data) -> bool:
+        """
+        Adds a property to the favorite lists
+        :param hash_val: The hash value of the entry
+        :param data: The housing data of the entry
+        :return: True if successfully added, false if otherwise
+        """
+        if hash_val not in self._rejections:
+            logger.info("Adding {0} to rejections".format(hash_val))
+            self._rejections[hash_val] = data
+            return True
+        else:
+            return False
+
+    def remove_from_favorites(self, hash_val):
+        """
+        Tries to remove an item from the favorites
+        :param hash_val: The hash value to remove
+        :return: Nothing
+        """
+        if hash_val in self._favorites:
+            logger.info("Removing {0} from favorites".format(hash_val))
+            del self._favorites[hash_val]
+
+    def remove_from_rejections(self, hash_val):
+        """
+        Tries to remove an item from the rejections
+        :param hash_val: The hash value to remove
+        :return: Nothing
+        """
+        if hash_val in self._rejections:
+            logger.info("Removing {0} from rejections".format(hash_val))
+            del self._rejections[hash_val]
 
     @property
     def window(self):
