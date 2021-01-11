@@ -33,6 +33,55 @@ function postErrorAlert(message) {
     $("#master-error-alert").show();
 }
 
+function setupRowButtons() {
+    $(".fav-button, .rej-button").click(function() {
+        var is_fav = $(this).hasClass("fav-button");
+        var message = "Moved to Rejected";
+        var typeClass = "rej-row";
+        if(is_fav) {
+            message = "Moved to Favorites";
+            typeClass = "fav-row";
+        }
+        const undo_row = `
+            <tr class="undo-row ${typeClass}">
+                <td colspan="8"><strong><i>${message} - </i></strong></td>
+                <td>
+                    <div class="btn-group btn-group-xs" role="group" aria-label="...">
+                        <button type="button" class="undo-button btn btn-warning">Undo</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+        deactivateUndoRows($(this).closest("table"));
+        $(this).closest("tr").replaceWith(undo_row);
+    });
+}
+
+function removeUndoRows(table) {
+
+    $(table).find("tbody > tr").each(function() {
+        if($(this).hasClass("undo-row")) {
+            $(this).remove();
+        }
+    });
+}
+
+function deactivateUndoRows(table) {
+    $(table).find("tbody > tr").each(function() {
+        if($(this).hasClass("undo-row")) {
+            var is_fav = $(this).hasClass("fav-row");
+            var message = "Moved to Rejected";
+            if(is_fav)
+                message = "Moved to Favorites";
+            const undo_row = `
+                <td colspan="9"><i>${message}</i></td>
+            `;
+            $(this).html(undo_row);
+        }
+    });
+}
+
+
 window.addEventListener('pywebviewready', () => {
     pywebview.api.ready().then(showResponse);
 });
@@ -42,8 +91,27 @@ window.onload = function(e) {
     $("#master-error-alert").hide();
     $("#address-table").hide();
 
-    $("#address-table > thead > tr > th > a").click(function() {
-        console.log("Sort header");
+    $("#address-table > thead > tr > th.sortable-col > a").click(function() {
+        let sort_column_idx = $("#address-table > thead > tr > th.sortable-col").toArray().indexOf($(this).parent()[0]);
+        table = $(this).closest("table");
+        removeUndoRows(table);
+        items = $(table).find("tbody > tr").toArray();
+        desc = $(table).prop("desc");
+        // Sort remaining rows
+        items.sort( function(a, b) {
+            data_a = $(a).find("td")[sort_column_idx];
+            data_b = $(b).find("td")[sort_column_idx];
+            return $(data_a).text().localeCompare($(data_b).text());
+        });
+        if(desc == true) {
+            $(table).prop("desc", false);
+            $(table).find("tbody").html($(items.reverse()));
+        }
+        else {
+            $(table).prop("desc", true);
+            $(table).find("tbody").html($(items));
+        }
+        setupRowButtons();
     });
 };
 
@@ -112,7 +180,7 @@ function finished_json_load(housing_json, char_json)
                 // Add row
                 var table_row = `
                     <tr>
-                        <th scope="row">${item["address"]}</th>
+                        <td class="address-row">${item["address"]}</td>
                         <td>$${item["rent"]}</td>
                         <td>${(item["beds"] ? item["beds"] : "--")}</td>
                         <td>${(item["baths_str"] ? item["baths_str"] : "--")}</td>
@@ -120,6 +188,12 @@ function finished_json_load(housing_json, char_json)
                         <td><span class="progress-bar-${color} badge">${(char_data["score"] * 100.0).toFixed(2)}</span></td>
                         <td>${item["source"]}</td>
                         <td><a target="_new" href='${item["link"]}'>Visit Page<a/></td>
+                        <td>
+                            <div class="btn-group btn-group-xs" role="group" aria-label="...">
+                                <button type="button" class="fav-button btn btn-success">Favorite</button>
+                                <button type="button" class="rej-button btn btn-danger">Reject</button>
+                            </div>
+                        </td>
                     </tr>
                 `;
                 $("tbody#address-table-body").append(table_row);
@@ -128,6 +202,8 @@ function finished_json_load(housing_json, char_json)
                 console.log("Missing characterization data for '" + item["address"] + "'");
         });
         $("#address-table").show();
+
+        setupRowButtons();
     }
 }
 
