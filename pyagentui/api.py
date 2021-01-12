@@ -23,6 +23,7 @@ from shutil import copyfile
 logger = logging.getLogger(__name__)
 
 WEB_DATA_DIR = "web/data"
+LIST_FILE = "lists.json"
 
 
 class WebAPI:
@@ -32,7 +33,6 @@ class WebAPI:
     def __init__(self, char_file: str):
         """
         Constructor
-        :param json_file: The path to the scraped data JSON file
         :param char_file: The path to the characterization data JSON file
         """
         self._char_file = char_file
@@ -41,6 +41,42 @@ class WebAPI:
 
         self._favorites = {}
         self._rejections = {}
+
+        # Load lists if exists
+        filename = WEB_DATA_DIR + "/" + LIST_FILE
+        if os.path.isfile(filename):
+            list_data = None
+            try:
+                with open(filename, "r") as list_file:
+                    list_data = json.load(list_file)
+            except json.JSONDecodeError as e:
+                logger.error("Failed to load lists file: {0}".format(e))
+            if list_data:
+                if "favorites" in list_data:
+                    self._favorites = list_data["favorites"]
+                if "rejections" in list_data:
+                    self._rejections = list_data["rejections"]
+            else:
+                logger.warning("Error reading list file")
+        else:
+            logger.warning("No list file found")
+
+    def save_lists(self) -> None:
+        """
+        Save lists to file
+        :return: Nothing
+        """
+        logger.info("Saving favorites and rejections...")
+        filename = WEB_DATA_DIR + "/" + LIST_FILE
+        try:
+            with open(filename, "w") as list_file:
+                list_json = {
+                    "favorites": self._favorites,
+                    "rejections": self._rejections
+                }
+                json.dump(list_json, list_file)
+        except OSError as e:
+            logger.error("Failed to save lists to file {0}: {1}".format(filename, e))
 
     def reload_page(self) -> None:
         """
@@ -68,7 +104,6 @@ class WebAPI:
             self._webview_window.evaluate_js(f"load_json(char_avail=true)")
         else:
             self._webview_window.evaluate_js(f"load_json(char_avail=false)")
-
 
     def add_to_favorites(self, hash_val, data) -> bool:
         """
@@ -98,25 +133,43 @@ class WebAPI:
         else:
             return False
 
-    def remove_from_favorites(self, hash_val):
+    def remove_from_favorites(self, hash_val) -> bool:
         """
         Tries to remove an item from the favorites
         :param hash_val: The hash value to remove
-        :return: Nothing
+        :return: Successfully removed
         """
         if hash_val in self._favorites:
             logger.info("Removing {0} from favorites".format(hash_val))
             del self._favorites[hash_val]
+            return True
+        return False
 
-    def remove_from_rejections(self, hash_val):
+    def remove_from_rejections(self, hash_val) -> bool:
         """
         Tries to remove an item from the rejections
         :param hash_val: The hash value to remove
-        :return: Nothing
+        :return: Successfully removed
         """
         if hash_val in self._rejections:
             logger.info("Removing {0} from rejections".format(hash_val))
             del self._rejections[hash_val]
+            return True
+        return False
+            
+    def get_favorites(self) -> dict:
+        """
+        Gets the favorites list
+        :return: Favorites list
+        """
+        return self._favorites
+
+    def get_rejections(self) -> dict:
+        """
+        Gets the rejections list
+        :return: Rejections list
+        """
+        return self._rejections
 
     @property
     def window(self):

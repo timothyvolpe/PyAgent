@@ -20,6 +20,9 @@ const DATA_FILE = "data/scraped_data.json"
 const CHAR_FILE = "data/characterization.json"
 
 let loaded_char_data = null;
+let removed_char_data = {};
+
+const TableType = Object.freeze({"TableAll": 1, "TableFavorites": 2, "TableRejections": 3})
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -35,13 +38,21 @@ function postErrorAlert(message) {
     $("#master-error-alert").show();
 }
 
-function addToList(is_fav, hash, row, data)
+function addToList(is_fav, hash, row, data, is_back_to_old=false)
 {
     var message = "Moved to Rejected";
     var typeClass = "rej-row";
-    if(is_fav) {
-        message = "Moved to Favorites";
-        typeClass = "fav-row";
+    if(is_back_to_old) {
+        message = "Removed from list";
+        typeClass = "remove-row";
+        $(row).remove();
+        return;
+    }
+    else {
+        if(is_fav) {
+            message = "Moved to Favorites";
+            typeClass = "fav-row";
+        }
     }
 
     const undo_row = `
@@ -58,7 +69,7 @@ function addToList(is_fav, hash, row, data)
     $(row_element).find(".undo-button").click(function() {
         var row = $(this).closest("tr");
         var hash = $(row).attr("hash");
-        var data = loaded_char_data[hash];
+        var data = removed_char_data[hash];
 
         if(is_fav) {
             pywebview.api.remove_from_favorites(hash);
@@ -68,6 +79,8 @@ function addToList(is_fav, hash, row, data)
         }
 
         var new_row = create_table_row(hash, data.char_output, data.housing_data);
+        loaded_char_data[hash] = data;
+        delete removed_char_data[hash];
         $(row).replaceWith(new_row);
         setupRowButtons();
     });
@@ -75,31 +88,71 @@ function addToList(is_fav, hash, row, data)
 }
 
 function setupRowButtons() {
-    $(".fav-button, .rej-button").click(function() {
+    $(".fav-button, .rej-button, .remove-button").click(function() {
         var is_fav = $(this).hasClass("fav-button");
+        var is_remove = $(this).hasClass("remove-button");
         var row = $(this).closest("tr");
         var hash = $(row).attr("hash");
-        var data = loaded_char_data[hash];
+        var data;
+        if(is_remove)
+            data = removed_char_data[hash];
+        else
+            data = loaded_char_data[hash];
 
-        if(is_fav) {
-            pywebview.api.add_to_favorites(hash, data).then(function(response) {
-                if(response) {
-                    addToList(is_fav, hash, row, data);
-                }
-                else {
-                    console.log("Cannot add to favorites");
-                }
-            }).catch(showResponse);
+        if(is_remove)
+        {
+            //is_back_to_old
+            if(is_fav) {
+                pywebview.api.remove_from_favorites(hash).then(function(response) {
+                    if(response) {
+                        addToList(is_fav, hash, row, data, true);
+                        loaded_char_data[hash] = removed_char_data[hash];
+                        delete removed_char_data[hash];
+                    }
+                    else {
+                        console.log("Cannot remove from favorites");
+                    }
+                });
+            }
+            else {
+                pywebview.api.remove_from_rejections(hash).then(function(response) {
+                    if(response) {
+                        addToList(is_fav, hash, row, data, true);
+                        loaded_char_data[hash] = removed_char_data[hash];
+                        delete removed_char_data[hash];
+                    }
+                    else {
+                        console.log("Cannot remove from rejections");
+                    }
+                });
+            }
         }
         else {
-            pywebview.api.add_to_rejections(hash, data).then(function(response) {
-                if(response) {
-                    addToList(is_fav, hash, row, data);
-                }
-                else {
-                    console.log("Cannot add to favorites");
-                }
-            }).catch(showResponse);
+            if(is_fav) {
+                pywebview.api.add_to_favorites(hash, data).then(function(response) {
+                    if(response) {
+                        addToList(is_fav, hash, row, data);
+                        removed_char_data[hash] = loaded_char_data[hash];
+                        delete loaded_char_data[hash];
+                    }
+                    else {
+                        console.log("Cannot add to favorites");
+                    }
+                }).catch(showResponse);
+
+            }
+            else {
+                pywebview.api.add_to_rejections(hash, data).then(function(response) {
+                    if(response) {
+                        addToList(is_fav, hash, row, data);
+                        removed_char_data[hash] = loaded_char_data[hash];
+                        delete loaded_char_data[hash];
+                    }
+                    else {
+                        console.log("Cannot add to favorites");
+                    }
+                }).catch(showResponse);
+            }
         }
     });
 }
@@ -112,6 +165,69 @@ function removeUndoRows(table) {
     });
 }
 
+function populate_table(data, table_type, do_source_list=false) {
+    $("#address-table").hide();
+    $("tbody#address-table-body").empty();
+    var char_data;
+    var housing;
+    var source_list = [];
+    for (const [k, value] of Object.entries(data))
+    {
+        char_data = value.char_output
+        housing = value.housing_data
+        if(!source_list.includes(housing["source"]))
+            source_list.push(housing["source"]);
+        if( char_data )
+            $("tbody#address-table-body").append(create_table_row(k, char_data, housing, table_type));
+        else
+            console.log("Missing characterization data for '" + housing["address"] + "'");
+    }
+    if(Object.keys(data).length == 0) {
+        console.log("No data");
+        $("tbody#address-table-body").append(`
+            <tr>
+                <td colspan="10"><p class="text-center">No data to display.</p></td>
+            </tr>
+        `);
+    }
+    if(do_source_list)
+    {
+        if($("#source-column > li").length == 0) {
+            source_list.forEach(function(element) {
+                const list_item = `
+                    <li class="nav-item">
+                        <a class="nav-link" href="#">${element}</a>
+                    </li>
+                `;
+                $("#source-column").append(list_item);
+            });
+        }
+    }
+    $("#address-table").show();
+}
+
+function switch_to_all() {
+    populate_table(loaded_char_data, TableType.TableAll, true);
+    setupRowButtons();
+}
+function switch_to_favorites() {
+    // Get favorites data
+    pywebview.api.get_favorites().then(function(response) {
+        if(response) {
+            populate_table(response, TableType.TableFavorites);
+            setupRowButtons();
+        }
+    }).catch(showResponse);
+}
+function switch_to_rejections() {
+    // Get favorites data
+    pywebview.api.get_rejections().then(function(response) {
+        if(response) {
+            populate_table(response, TableType.TableRejections);
+            setupRowButtons();
+        }
+    }).catch(showResponse);
+}
 
 window.addEventListener('pywebviewready', () => {
     pywebview.api.ready().then(showResponse);
@@ -164,9 +280,32 @@ window.onload = function(e) {
         }
         setupRowButtons();
     });
+
+    $("#all-data-link").click(function() {
+        console.log("Switching to All Data");
+        $("#all-data-link").text("All Data (current)").addClass("active");
+        $("#favorites-link").text("Favorites").removeClass("active");
+        $("#rejections-link").text("Rejections").removeClass("active");
+        switch_to_all();
+    });
+    $("#favorites-link").click(function() {
+        console.log("Switching to Favorites");
+        $("#all-data-link").text("All Data").removeClass("active");
+        $("#favorites-link").text("Favorites (current)").addClass("active");
+        $("#rejections-link").text("Rejections").removeClass("active");
+        switch_to_favorites();
+    });
+    $("#rejections-link").click(function() {
+        console.log("Switching to Rejections");
+        $("#all-data-link").text("All Data").removeClass("active");
+        $("#favorites-link").text("Favorites").removeClass("active");
+        $("#rejections-link").text("Rejections (current)").addClass("active");
+        switch_to_rejections();
+    });
 };
 
-function create_table_row(hash, char_data, housing) {
+function create_table_row(hash, char_data, housing, table_type=TableType.TableAll)
+{
     // Determine score color
     var color = "";
     if( char_data["score"] < 0.33 ) {
@@ -214,6 +353,34 @@ function create_table_row(hash, char_data, housing) {
                 console.log("Unknown train line: " + key)
         }
     }
+    // Options
+    var table_options = ``;
+    switch(table_type)
+    {
+    case TableType.TableFavorites:
+        table_options = `
+            <div class="options-btn-group btn-group btn-group-xs" role="group" aria-label="...">
+                <button type="button" class="remove-button fav-button btn btn-danger btn-sm">Remove</button>
+            </div>
+        `;
+        break;
+    case TableType.TableRejections:
+        table_options = `
+            <div class="options-btn-group btn-group btn-group-xs" role="group" aria-label="...">
+                <button type="button" class="remove-button rej-button btn btn-danger btn-sm">Remove</button>
+            </div>
+        `;
+        break;
+    case TableType.TableAll:
+    default:
+        table_options = `
+            <div class="options-btn-group btn-group btn-group-xs" role="group" aria-label="...">
+                <button type="button" class="fav-button btn btn-success btn-sm">Favorite</button>
+                <button type="button" class="rej-button btn btn-danger btn-sm">Reject</button>
+            </div>
+        `;
+        break;
+    }
     // Add row
     var table_row = `
         <tr hash="${hash}">
@@ -226,45 +393,38 @@ function create_table_row(hash, char_data, housing) {
             <td><span class="badge badge-pill badge-${color}">${(char_data["score"] * 100.0).toFixed(2)}</span></td>
             <td>${housing["source"]}</td>
             <td><a target="_new" href='${housing["link"]}'>Visit Page<a/></td>
-            <td>
-                <div class="options-btn-group btn-group btn-group-xs" role="group" aria-label="...">
-                    <button type="button" class="fav-button btn btn-success btn-sm">Favorite</button>
-                    <button type="button" class="rej-button btn btn-danger btn-sm">Reject</button>
-                </div>
-            </td>
+            <td>${table_options}</td>
         </tr>
     `;
-
     return table_row;
 }
 
 function finished_json_load(char_json)
 {
     loaded_char_data = char_json
-    var source_list = [];
-    for (const [k, value] of Object.entries(char_json)) {
-        char_data = value.char_output
-        housing = value.housing_data
-        if(!source_list.includes(housing["source"]))
-            source_list.push(housing["source"]);
-        if( char_data )
-            $("tbody#address-table-body").append(create_table_row(k, char_data, housing));
-        else
-            console.log("Missing characterization data for '" + housing["address"] + "'");
-    }
-    $("#address-table").show();
-
-    // Add source options
-    source_list.forEach(function(element) {
-        const list_item = `
-            <li class="nav-item">
-                <a class="nav-link" href="#">${element}</a>
-            </li>
-        `;
-        $("#source-column").append(list_item);
-    });
-
-    setupRowButtons();
+    // Remove favorites and rejections
+    pywebview.api.get_favorites().then(function(response) {
+        if(response) {
+            for (const [key, value] of Object.entries(response)) {
+                if(key in loaded_char_data) {
+                    removed_char_data[key] = loaded_char_data[key]
+                    delete loaded_char_data[key];
+                }
+            }
+        }
+        switch_to_all();
+    }).catch(showResponse);
+    pywebview.api.get_rejections().then(function(response) {
+        if(response) {
+            for (const [key, value] of Object.entries(response)) {
+                if(key in loaded_char_data) {
+                    removed_char_data[key] = loaded_char_data[key]
+                    delete loaded_char_data[key];
+                }
+            }
+        }
+        switch_to_all();
+    }).catch(showResponse);
 }
 
 function load_json(char_avail=true) {

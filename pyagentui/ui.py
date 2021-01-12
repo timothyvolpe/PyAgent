@@ -34,3 +34,4 @@ class WebUI:
         window = webview.create_window("PyAgent", "web/index.html", width=1600, height=900, js_api=api)
         api.window = window
         webview.start(debug=True, gui="edgechromium", http_server=True)
+        api.save_lists()
