@@ -82,9 +82,14 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         property_neighborhood = response.css(".neighborhoodAddress > a.neighborhood ::text").extract_first()
 
         # Get the first table of units (usually All)
-        first_tab = response.css(".tabContent")[0]
-        # If it doesnt exist, true single rental table
-        first_tab = response.css(".availabilityTable")[0]
+        first_tab = response.css(".tabContent")
+        if first_tab:
+            first_tab = first_tab[0]
+        else:
+            # If it doesnt exist, true single rental table
+            first_tab = response.css(".availabilityTable")
+            if first_tab:
+                first_tab = first_tab[0]
 
         # Check each unit
         for unit in first_tab.css(".rentalGridRow"):

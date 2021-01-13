@@ -21,6 +21,7 @@ const CHAR_FILE = "data/characterization.json"
 
 let loaded_char_data = null;
 let removed_char_data = {};
+let orphaned_char_data = {};
 
 const TableType = Object.freeze({"TableAll": 1, "TableFavorites": 2, "TableRejections": 3})
 
@@ -171,14 +172,19 @@ function populate_table(data, table_type, do_source_list=false) {
     var char_data;
     var housing;
     var source_list = [];
+    var orphaned = false;
     for (const [k, value] of Object.entries(data))
     {
-        char_data = value.char_output
-        housing = value.housing_data
+        char_data = value.char_output;
+        housing = value.housing_data;
+        if(k in orphaned_char_data)
+            orphaned = true;
+        else
+            orphaned = false;
         if(!source_list.includes(housing["source"]))
             source_list.push(housing["source"]);
         if( char_data )
-            $("tbody#address-table-body").append(create_table_row(k, char_data, housing, table_type));
+            $("tbody#address-table-body").append(create_table_row(k, char_data, housing, table_type, orphaned));
         else
             console.log("Missing characterization data for '" + housing["address"] + "'");
     }
@@ -196,10 +202,24 @@ function populate_table(data, table_type, do_source_list=false) {
             source_list.forEach(function(element) {
                 const list_item = `
                     <li class="nav-item">
-                        <a class="nav-link" href="#">${element}</a>
+                        <a class="nav-link source-link" href="#">${element}</a>
                     </li>
                 `;
                 $("#source-column").append(list_item);
+            });
+
+            $("a.source-link").click(function() {
+                var source = $(this).text();
+                console.log("Switching to " + source);
+                combined_source_data = {};
+                for (const [k, value] of Object.entries(loaded_char_data))
+                {
+                    data_source = value.housing_data["source"];
+                    if(data_source == source)
+                        combined_source_data[k] = value;
+                }
+                populate_table(combined_source_data, TableType.TableAll);
+                setupRowButtons();
             });
         }
     }
@@ -304,7 +324,7 @@ window.onload = function(e) {
     });
 };
 
-function create_table_row(hash, char_data, housing, table_type=TableType.TableAll)
+function create_table_row(hash, char_data, housing, table_type=TableType.TableAll, orphaned=false)
 {
     // Determine score color
     var color = "";
@@ -355,19 +375,22 @@ function create_table_row(hash, char_data, housing, table_type=TableType.TableAl
     }
     // Options
     var table_options = ``;
+    var remove_text = "Remove";
+    if(orphaned)
+        remove_text = "DELETE";
     switch(table_type)
     {
     case TableType.TableFavorites:
         table_options = `
             <div class="options-btn-group btn-group btn-group-xs" role="group" aria-label="...">
-                <button type="button" class="remove-button fav-button btn btn-danger btn-sm">Remove</button>
+                <button type="button" class="remove-button fav-button btn btn-danger btn-sm">${remove_text}</button>
             </div>
         `;
         break;
     case TableType.TableRejections:
         table_options = `
             <div class="options-btn-group btn-group btn-group-xs" role="group" aria-label="...">
-                <button type="button" class="remove-button rej-button btn btn-danger btn-sm">Remove</button>
+                <button type="button" class="remove-button rej-button btn btn-danger btn-sm">${remove_text}</button>
             </div>
         `;
         break;
@@ -381,9 +404,11 @@ function create_table_row(hash, char_data, housing, table_type=TableType.TableAl
         `;
         break;
     }
+    if(orphaned)
+        console.log("Orphan!");
     // Add row
     var table_row = `
-        <tr hash="${hash}">
+        <tr hash="${hash}" class=${orphaned ? "table-danger" : ""}>
             <th scope="col" class="address-row">${housing["address"]}</th>
             <td>$${housing["rent"]}</td>
             <td>${(housing["beds"] ? housing["beds"] : "--")}</td>
@@ -410,6 +435,9 @@ function finished_json_load(char_json)
                     removed_char_data[key] = loaded_char_data[key]
                     delete loaded_char_data[key];
                 }
+                else {
+                    orphaned_char_data[key] = value;
+                }
             }
         }
         switch_to_all();
@@ -420,6 +448,9 @@ function finished_json_load(char_json)
                 if(key in loaded_char_data) {
                     removed_char_data[key] = loaded_char_data[key]
                     delete loaded_char_data[key];
+                }
+                else {
+                    orphaned_char_data[key] = value;
                 }
             }
         }
