@@ -42,3 +42,5 @@ Its good to have a referral URL in there as well.
 - wheel 0.36.2
 - pywebview 3.4
 
+Requires the [Edge Chromium runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) on Windows if you intend to use the GUI.
+

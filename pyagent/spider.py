@@ -19,6 +19,7 @@
 import logging
 import scrapy
 import re
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,9 @@ class BaseSpider:
     """
     name = "apartments_crawler"
     start_urls = ""
+
+    uid_lock = threading.Lock()
+    housing_uid_index = 0
 
     NOMINATIM_REQUEST_DELAY = 1
 
@@ -89,6 +93,18 @@ class BaseSpider:
         addr = remove_excess_word("FLOOR", addr)
 
         return ' '.join(addr.split()).rstrip().lstrip()
+
+    @staticmethod
+    def get_next_uid() -> int:
+        """
+        Returns the next housing UID
+        :return: Next UID
+        """
+        BaseSpider.uid_lock.acquire()
+        BaseSpider.housing_uid_index += 1
+        uid = BaseSpider.housing_uid_index
+        BaseSpider.uid_lock.release()
+        return uid
 
     def __init__(self):
         pass

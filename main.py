@@ -28,6 +28,9 @@ import pyagentui
 import json
 import importlib
 import random
+import haversine
+import hashlib
+from base64 import b64encode
 from scrapy.crawler import CrawlerProcess
 
 has_browsers_file = False
@@ -43,8 +46,10 @@ regular_filter = None
 CONFIG_FILE = "options.ini"
 OUTPUT_DIR = "output"
 OUTPUT_CACHE_BASE = "scrape_results_*.json"
+CHAR_OUTPUT_FILE = "output/characterization.json"
 
 scrape_website_list = []
+train_data = None
 
 housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=800,
                                             result_format=pyagent.ResultFormat.Currency, upper=1500),
@@ -74,6 +79,15 @@ class VerboseFilter(logging.Filter):
     """
     def filter(self, record):
         return (record.levelno == logging.INFO or record.levelno == logging.WARNING) and "scrapy" not in record.name
+
+
+def generate_uid(address, unit) -> str:
+    s = b64encode(address.encode())
+    unit = str(unit)
+    if unit is None:
+        unit = "0"
+    p = b64encode(unit.encode())
+    return hashlib.sha256(s + p).hexdigest()
 
 
 def setup_logger():
@@ -163,6 +177,48 @@ def get_latest_cache(caches: list) -> (str, int):
         except ValueError:
             continue
     return max_cache_name, max_index
+
+
+def get_nearby_trains(location, radius_mi: float):
+    """
+    Returns a list of nearby trains in a radius around location
+    :param location: Location to center search radius
+    :param radius_mi: Radius of search circle in miles
+    :return: List of trains serviced at stations within radius
+    """
+    if not location:
+        return None
+    nearby_stations = {}
+    for station in train_data:
+        distance = haversine.haversine(station["coords"], location, unit=haversine.Unit.MILES)
+        if distance < radius_mi:
+            lines = station["lines"]
+            for line in lines:
+                lines_to_add = []
+                if "Commuter Rail" in line:
+                    lines_to_add = ["Commuter Rail"]
+                elif "Silver Line" in line:
+                    lines_to_add = ["Silver Line"]
+                elif "Green Line" in line:
+                    line_branches = line[line.find("(") + 1:line.find(")")]
+                    branch_tokens = line_branches.split(",")
+                    for branch in branch_tokens:
+                        lines_to_add.append("Green Line (" + branch.replace(" ", "") + ")")
+                elif "Red Line" in line:
+                    line_branches = line[line.find("(") + 1:line.find(")")]
+                    branch_tokens = line_branches.split(",")
+                    for branch in branch_tokens:
+                        lines_to_add.append("Red Line (" + branch.replace(" ", "") + ")")
+                else:
+                    lines_to_add = [line]
+
+                for add in lines_to_add:
+                    if add in nearby_stations:
+                        nearby_stations[add].append(station["name"])
+                    else:
+                        nearby_stations[add] = [station["name"]]
+
+    return nearby_stations
 
 
 def perform_scrape() -> bool:
@@ -257,14 +313,27 @@ def perform_characterization() -> bool:
     char_results_good = []      # Good apartments
     char_results_bad = []       # Bad apartments (have a 0 in some category)
     char_results_dq = []        # Disqualified apartments
+    char_output = {}            # Dumps to JSON file for GUI
     total_houses = len(housing_data)
+    used_uids = []
     for housing in housing_data:
         result_dict = {
+            "uid": -1,
             "address": housing["address"],
             "link": housing["link"],
             "source": housing["source"],
             "unit": housing["unit"],
-            "criterion": []
+            "criterion": [],
+            "TOTAL": 0.0,
+            "SCORE": 0.0,
+            "POSSIBLE_POINTS": 0.0
+        }
+        output_data = {
+            "address": "",
+            "score": 0.0,
+            "total": 0.0,
+            "possible": 0.0,
+            "trains": []
         }
         total = 0
         possible_points = 0
@@ -282,6 +351,25 @@ def perform_characterization() -> bool:
         else:
             result_dict["SCORE"] = 0.0
         result_dict["POSSIBLE_POINTS"] = possible_points
+        result_dict["uid"] = housing["uid"]
+        if housing["uid"] in used_uids:
+            logger.error("UID {0} has already been used!".format(used_uids))
+        else:
+            used_uids.append(housing["uid"])
+
+        # Add to characterization data
+        output_data["address"] = housing["address"]
+        output_data["score"] = result_dict["SCORE"]
+        output_data["total"] = result_dict["TOTAL"]
+        output_data["possible"] = result_dict["POSSIBLE_POINTS"]
+        output_data["trains"] = get_nearby_trains(housing["coordinates"], radius_mi=0.5)
+
+        hash_uid = generate_uid(housing["address"], housing["unit"])
+        char_output[hash_uid] = {
+            "housing_data": housing,
+            "char_output": output_data,
+        }
+
         if result_dict["SCORE"] > PERFECT_SCORE:
 
             char_results_good.append(result_dict)
@@ -308,10 +396,17 @@ def perform_characterization() -> bool:
 
         logger.info("\nResults Printed Bottom Down (Best Result at Bottom)\n")
 
-    print_results(char_results_bad, "Okay Housing")
-    print_results(char_results_good, "Perfect Housing")
+    #print_results(char_results_bad, "Okay Housing")
+    #print_results(char_results_good, "Perfect Housing")
 
-    logger.info("Characterized {0} Entries of Housing Data".format(total_houses))
+    # Write characterization output
+    try:
+        with open(CHAR_OUTPUT_FILE, "w") as output_file:
+            json.dump(char_output, output_file)
+    except OSError as e:
+        logger.error("Failed to write characterization.json: {0}".format(e))
+
+    logger.info("\nCharacterized {0} Entries of Housing Data".format(total_houses))
     logger.info("  Of those entries, {0} were considered PERFECT and {1} were considered OKAY".format(
         len(char_results_good), len(char_results_bad)))
 
@@ -323,6 +418,7 @@ def load_options() -> bool:
     Loads the options file. If it does not exist, a default one will be created.
     :return: True if successfully loaded or created the file, false if otherwise.
     """
+    global train_data
     config = configparser.ConfigParser()
     if not os.path.isfile(CONFIG_FILE):
         logger.debug("Config file {0} not found, creating default".format(CONFIG_FILE))
@@ -396,13 +492,21 @@ def load_options() -> bool:
     return True
 
 
-def open_gui() -> None:
+def open_gui() -> bool:
     """
     Opens the PyAgent GUI
     :return: Nothing
     """
     logger.info("Opening graphical user inferface...")
-    pyagentui.open_gui()
+
+    # Check for characterization data
+    if not os.path.exists(CHAR_OUTPUT_FILE):
+        logger.error("There was no characterization data. Run pyagent.py without arguments to generate "
+                     "characterization data.")
+        return False
+
+    pyagentui.open_gui(char_file=CHAR_OUTPUT_FILE)
+    return True
 
 
 def main(argv) -> int:
@@ -447,8 +551,9 @@ def main(argv) -> int:
     if do_verbose:
         enable_verbose()
     if do_gui:
-        open_gui()
-        return 1
+        if not open_gui():
+            return 1
+        return 0
 
     # Load the options file
     if not load_options():
