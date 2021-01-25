@@ -35,6 +35,7 @@ function showResponse(response) {
 }
 
 function postErrorAlert(message) {
+    console.log("ERROR: " + message)
     $("#master-error-alert").append("<p>" + message + "</p>");
     $("#master-error-alert").show();
 }
@@ -250,7 +251,10 @@ function switch_to_rejections() {
 }
 
 window.addEventListener('pywebviewready', () => {
-    pywebview.api.ready().then(showResponse);
+    pywebview.api.ready().then(function(response) {
+        if(!response)
+            postErrorAlert("Python API failed to initialize");
+    }).catch(showResponse);
 });
 
 window.onload = function(e) {

@@ -18,11 +18,13 @@
 
 import logging
 import scrapy
+from scrapy.shell import inspect_response
 import time
 import geopy
 import geopy.geocoders as gc
 from .spider import ScrapySpider, BaseSpider
 from .cache import LocationCache
+from .addresses import AddressLookup
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +55,13 @@ class ZillowSpiderWorker(scrapy.Spider):
 
     def __init__(self, *a, **kw):
         super(ZillowSpiderWorker, self).__init__(*a, **kw)
-        self._last_nom_reqest = 0
         self._pages_scraped = 0
         self._first_search = ZillowSpiderWorker.start_urls[0]
 
         self.download_delay = 5
 
     def parse(self, response):
+        #inspect_response(response, self)
         housing_list = response.css("ul.photo-cards")
         if not housing_list:
             logger.error("Invalid zillow page")
@@ -80,25 +82,11 @@ class ZillowSpiderWorker(scrapy.Spider):
                 address = BaseSpider.simplify_address(BaseSpider.cleanup_garbage(address))
 
                 # Check if address is in cache
-                location = LocationCache.get_location(address)
-                # Make sure address is valid
-                if location is None and not LocationCache.entry_present(address):
-                    time_since_last = (time.time() - self._last_nom_reqest)
-                    if time_since_last < BaseSpider.NOMINATIM_REQUEST_DELAY:
-                        time.sleep(BaseSpider.NOMINATIM_REQUEST_DELAY - time_since_last)
-                    try:
-                        geolocator = gc.Nominatim(user_agent="pyagent")
-                        location_obj = geolocator.geocode(address)
-                    except geopy.exc.ConfigurationError as e:
-                        location_obj = None
-                    self._last_nom_reqest = time.time()
-                    if location_obj is None:
-                        logger.error("Could not get geospatial coordinates of address '{0}', "
-                                     "see source at {1}".format(address, response.request.url))
-                        LocationCache.add_to_cache(address, None)
-                        continue
-                    location = (location_obj.latitude, location_obj.longitude)
-                    LocationCache.add_to_cache(address, location)
+                location = AddressLookup.lookup_address(address)
+                if location is None:
+                    logger.warning("Skipping '{0}' due to invalid address".format(address))
+                    continue
+                address = AddressLookup.construct_address(location)
 
                 # Get the link to the address
                 link = card.css(".list-card-link ::attr(href)").extract_first()
@@ -180,7 +168,7 @@ class ZillowSpiderWorker(scrapy.Spider):
                     "beds": bed_count,
                     "baths_str": bath_count,
                     "unit": None,
-                    "coordinates": location,
+                    "coordinates": (location["lat"], location["long"]),
                     "additional": None,
                     "link": link,
                     "source": "zillow.com"

@@ -85,10 +85,10 @@ class WebAPI:
         """
         self._page_ready = False
 
-    def ready(self) -> None:
+    def ready(self) -> bool:
         """
         Called from JavaScript, signifies the page is done loading
-        :return: Nothing
+        :return: True if success, False if otherwise
         """
         self._page_ready = True
         logger.debug("Webpage ready!")
@@ -96,7 +96,13 @@ class WebAPI:
         # Copy the JSON data to the web directory
         found_char_file = False
         if self._char_file:
-            copyfile(self._char_file, WEB_DATA_DIR + "/characterization.json")
+            if not os.path.isdir(WEB_DATA_DIR):
+                os.mkdir(WEB_DATA_DIR)
+            try:
+                copyfile(self._char_file, WEB_DATA_DIR + "/characterization.json")
+            except FileNotFoundError as e:
+                logger.error(e)
+                return False
             found_char_file = True
 
         # Tell javascript there is JSON data available
@@ -104,6 +110,8 @@ class WebAPI:
             self._webview_window.evaluate_js(f"load_json(char_avail=true)")
         else:
             self._webview_window.evaluate_js(f"load_json(char_avail=false)")
+
+        return True
 
     def add_to_favorites(self, hash_val, data) -> bool:
         """

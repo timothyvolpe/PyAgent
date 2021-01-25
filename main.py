@@ -244,7 +244,7 @@ def perform_scrape() -> bool:
     # Crawler settings
     crawler_settings ={
         "FEEDS": {
-            cache_path: {"format": "json"},
+            cache_path: {"format": "jsonlines"},
         },
         'DOWNLOAD_DELAY': 1,
         'LOG_LEVEL': 'WARNING',
@@ -263,6 +263,10 @@ def perform_scrape() -> bool:
                     if not source.spider.scrapy_spider.custom_settings:
                         source.spider.scrapy_spider.custom_settings = {}
                     source.spider.scrapy_spider.custom_settings["DEFAULT_REQUEST_HEADERS"] = source_header
+                cache_specific_path = cache_path + "_" + source_key
+                source.spider.scrapy_spider.custom_settings["FEEDS"] = {
+                    cache_specific_path: {"format": "json"}
+                }
     else:
         logger.warning("You have not provided any headers! Your scrape requests may get blocked. Please see README for "
                        "information.")
@@ -305,7 +309,8 @@ def perform_characterization() -> bool:
 
     try:
         with open(cache_name, "r") as cache_file:
-            housing_data = json.load(cache_file)
+            jsonlines = cache_file.readlines()
+            housing_data = [json.loads(jline) for jline in jsonlines]
     except json.decoder.JSONDecodeError as e:
         logger.critical("Failed to read scraped data file: {0}".format(e))
         return False
@@ -437,6 +442,8 @@ def load_options() -> bool:
         config["zillow"] = {"search_url": 'boston-ma/apartments/2-bedrooms/?searchQueryState={"pagination"%%3A{}%%2C"usersSearchTerm"%%3A"Boston%%2C MA"%%2C"mapBounds"%%3A{"west"%%3A-71.24846881103517%%2C"east"%%3A-70.84678118896485%%2C"south"%%3A42.21141701120901%%2C"north"%%3A42.41528103566799}%%2C"regionSelection"%%3A[{"regionId"%%3A44269%%2C"regionType"%%3A6}]%%2C"isMapVisible"%%3Atrue%%2C"filterState"%%3A{"fsba"%%3A{"value"%%3Afalse}%%2C"fsbo"%%3A{"value"%%3Afalse}%%2C"nc"%%3A{"value"%%3Afalse}%%2C"fore"%%3A{"value"%%3Afalse}%%2C"cmsn"%%3A{"value"%%3Afalse}%%2C"auc"%%3A{"value"%%3Afalse}%%2C"pmf"%%3A{"value"%%3Afalse}%%2C"pf"%%3A{"value"%%3Afalse}%%2C"fr"%%3A{"value"%%3Atrue}%%2C"ah"%%3A{"value"%%3Atrue}%%2C"sf"%%3A{"value"%%3Afalse}%%2C"mf"%%3A{"value"%%3Afalse}%%2C"manu"%%3A{"value"%%3Afalse}%%2C"land"%%3A{"value"%%3Afalse}%%2C"tow"%%3A{"value"%%3Afalse}%%2C"beds"%%3A{"min"%%3A2%%2C"max"%%3A2}%%2C"mp"%%3A{"max"%%3A3000}%%2C"price"%%3A{"max"%%3A913943}}%%2C"isListVisible"%%3Atrue%%2C"mapZoom"%%3A12}'}
 
         config["train_data"] = {"source": "data/mbta.json"}
+
+        config["gui_settings"] = {"filter_city": "", "filter_suburb": "", "filter_neighborhood": ""}
 
         with open(CONFIG_FILE, "w") as configfile:
             config.write(configfile)

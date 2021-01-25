@@ -34,8 +34,6 @@ class BaseSpider:
     uid_lock = threading.Lock()
     housing_uid_index = 0
 
-    NOMINATIM_REQUEST_DELAY = 1
-
     @staticmethod
     def cleanup_garbage(dirty: str) -> str:
         """

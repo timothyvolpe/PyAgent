@@ -19,12 +19,13 @@
 import logging
 import os
 import json
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = "cache"
 LOCATION_CACHE = "location.json"
-LOCATION_CACHE = "location_reverse.json"
+LOCATION_CACHE_REVERSE = "location_reverse.json"
 
 import hashlib
 from base64 import b64encode
@@ -37,7 +38,7 @@ class LocationCache:
     location_data = None
     location_reverse_data = None
     cache_path = CACHE_DIR + "\\" + LOCATION_CACHE
-    cache_path_rev = CACHE_DIR + "\\" + LOCATION_CACHE
+    cache_path_rev = CACHE_DIR + "\\" + LOCATION_CACHE_REVERSE
 
     @staticmethod
     def init_cache() -> None:
@@ -76,19 +77,21 @@ class LocationCache:
                 outfile.seek(0)
                 json.dump(LocationCache.location_data, outfile)
                 outfile.truncate()
+                logger.info("Saving location cache...")
             with open(LocationCache.cache_path_rev, 'w') as outfile:
                 outfile.seek(0)
                 json.dump(LocationCache.location_reverse_data, outfile)
                 outfile.truncate()
+                logger.info("Saving location reverse cache...")
         except OSError as e:
             logger.critical("Failed to write cache to disk: {0}".format(e))
 
     @staticmethod
-    def get_address(coords: list) -> str:
+    def get_address(coords: list) -> Optional[dict]:
         """
         Retrieves an approximate address from the given set of coordinates
         :param coords: Coordinates as 2 floats, [lat, long]
-        :return: Address string if in cache, None otherwise
+        :return: Address dict if in cache, None otherwise
         """
         uid = hashlib.sha256(str(coords[0]).encode() + str(coords[1]).encode()).hexdigest()
         if uid in LocationCache.location_reverse_data:

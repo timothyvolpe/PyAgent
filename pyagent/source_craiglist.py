@@ -23,6 +23,7 @@ import geopy
 import geopy.geocoders as gc
 from .cache import LocationCache
 from .spider import ScrapySpider, BaseSpider
+from .addresses import AddressLookup
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,6 @@ class CraigslistSpiderWorker(scrapy.Spider):
     def __init__(self, *a, **kw):
         super(CraigslistSpiderWorker, self).__init__(*a, **kw)
 
-        self._last_nom_reqest = 0
-
         self._housing_index = 0
         self._housing_link_list = []
 
@@ -71,62 +70,41 @@ class CraigslistSpiderWorker(scrapy.Spider):
             except ValueError:
                 logger.error("Invalid floating-point coordinates ({0}, {1})".format(latitude, longitude))
 
-        # Check if coords are in cache
-        address = LocationCache.get_address(coordinates)
-        if address is None and not LocationCache.entry_present_reverse(coordinates):
-            time_since_last = (time.time() - self._last_nom_reqest)
-            if time_since_last < BaseSpider.NOMINATIM_REQUEST_DELAY:
-                time.sleep(BaseSpider.NOMINATIM_REQUEST_DELAY - time_since_last)
-            try:
-                geolocator = gc.Nominatim(user_agent="pyagent")
-                address_obj = geolocator.reverse(query=geopy.point.Point(coordinates[0], coordinates[1]), exactly_one=True)
-            except geopy.exc.ConfigurationError as e:
-                address_obj = None
+        # Check if address is in cache
+        location = AddressLookup.lookup_coordinates(coordinates)
+        if location is None:
+            logger.warning("Skipping '{0}' due to invalid address".format(housing_data["link"]))
+        else:
+            address = AddressLookup.construct_address(location)
 
-            if address_obj is None:
-                logger.error("Could not get nearby address of coordinates '({0}, {1})', "
-                             "see source at {1}".format(coordinates[0], coordinates[1]))
-                LocationCache.add_to_reverse_cache(coordinates, None)
-                address = None
-            found_address = address_obj.address
-            # Format address (remove housing number, make more brief)
-            address_tokens = found_address.split(',')
-            if len(address_tokens) >= 4:
-                address_tokens = address_tokens[0:4]
-                found_address = ', '.join(address_tokens).rstrip().lstrip()
-            found_address = "Near " + found_address
-            LocationCache.add_to_reverse_cache(coordinates, found_address)
-            address = found_address
+            # Get post ID
+            post_infos = response.css("p.postinginfo ::text").extract()
+            post_id = None
+            for info in post_infos:
+                if "post id:" in info:
+                    info = info.replace("post id: ", "").lstrip().rstrip()
+                    try:
+                        post_id = int(info)
+                    except ValueError:
+                        logger.error("Invalid post id '{0}'".format(post_id))
 
-            self._last_nom_reqest = time.time()
+            # Yield info
+            yield {
+                "uid": BaseSpider.get_next_uid(),
+                "address": address,
+                "neighborhood": housing_data["hood"],
+                "rent": housing_data["price"],
+                "deposit": None,
+                "sqft": None,
+                "beds": None,
+                "baths_str": None,
+                "unit": post_id,
+                "coordinates": coordinates,
+                "additional": None,
+                "link": response.request.url,
+                "source": "craigslist.com"
+            }
 
-        # Get post ID
-        post_infos = response.css("p.postinginfo ::text").extract()
-        post_id = None
-        for info in post_infos:
-            if "post id:" in info:
-                info = info.replace("post id: ", "").lstrip().rstrip()
-                try:
-                    post_id = int(info)
-                except ValueError:
-                    logger.error("Invalid post id '{0}'".format(post_id))
-
-        # Yield info
-        yield {
-            "uid": BaseSpider.get_next_uid(),
-            "address": address,
-            "neighborhood": housing_data["hood"],
-            "rent": housing_data["price"],
-            "deposit": None,
-            "sqft": None,
-            "beds": None,
-            "baths_str": None,
-            "unit": post_id,
-            "coordinates": coordinates,
-            "additional": None,
-            "link": response.request.url,
-            "source": "craigslist.com"
-        }
         # Go to next
         if self._housing_index+1 < len(self._housing_link_list):
             if self._housing_index+1 >= MAX_HOUSING_SCRAPES and MAX_HOUSING_SCRAPES != 0:
