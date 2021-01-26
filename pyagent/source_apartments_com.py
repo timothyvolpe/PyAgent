@@ -148,13 +148,16 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                     baths_str = baths_val
 
             location = self._locations[self._apartment_index]
-            address = self._addresses[self._apartment_index]
+            address = AddressLookup.construct_address(location)
             additional_tags = self._additional_tags[self._apartment_index]
 
             yield {
                 "uid": BaseSpider.get_next_uid(),
                 "address": address,
-                "neighborhood": property_neighborhood,
+                "neighborhood": location["neighborhood"],
+                "suburb": location["suburb"],
+                "city": location["city"],
+                "state": location["state"],
                 "rent": rent_str,
                 "deposit": deposit_str,
                 "sqft": sqft_str,
@@ -222,13 +225,12 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
             if location is None:
                 logger.warning("Skipping '{0}' due to invalid address".format(addr_title))
                 continue
-            address = AddressLookup.construct_address(location)
 
             apartment_link = apt_placard.css(link_selector).extract_first()
             self._apartment_urls.append(apartment_link)
             self._additional_tags.append(additional_tags)
             self._locations.append(location)
-            self._addresses.append(address)
+            self._addresses.append(location)
 
         # Go to next page if possible
         if page_current < page_count and DO_MULTIPLE_PAGES:

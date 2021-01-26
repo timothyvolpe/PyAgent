@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Set the maximum number of apartment pages to check in one session
 # Set to 0 for infinite
-MAX_HOUSING_SCRAPES = 10
+MAX_HOUSING_SCRAPES = 50
 
 class CraigslistSpider(ScrapySpider):
     """
@@ -92,7 +92,10 @@ class CraigslistSpiderWorker(scrapy.Spider):
             yield {
                 "uid": BaseSpider.get_next_uid(),
                 "address": address,
-                "neighborhood": housing_data["hood"],
+                "neighborhood": location["neighborhood"],
+                "suburb": location["suburb"],
+                "city": location["city"],
+                "state": location["state"],
                 "rent": housing_data["price"],
                 "deposit": None,
                 "sqft": None,

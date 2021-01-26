@@ -51,8 +51,8 @@ CHAR_OUTPUT_FILE = "output/characterization.json"
 scrape_website_list = []
 train_data = None
 
-housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=800,
-                                            result_format=pyagent.ResultFormat.Currency, upper=1500),
+housing_criteria = [pyagent.CriterionLesser(name="Rent", key="rent", weight=100, lower=1500,
+                                            result_format=pyagent.ResultFormat.Currency, upper=2500),
                     pyagent.CriterionSqFt(name="Square Footage", key="sqft", weight=10, lower=0,
                                           result_format=pyagent.ResultFormat.SquareFoot, upper=1200, maximum=2500),
                     pyagent.CriterionBeds(name="Bedrooms", key="beds", lower=2, weight=50, upper=3,
@@ -263,10 +263,6 @@ def perform_scrape() -> bool:
                     if not source.spider.scrapy_spider.custom_settings:
                         source.spider.scrapy_spider.custom_settings = {}
                     source.spider.scrapy_spider.custom_settings["DEFAULT_REQUEST_HEADERS"] = source_header
-                cache_specific_path = cache_path + "_" + source_key
-                source.spider.scrapy_spider.custom_settings["FEEDS"] = {
-                    cache_specific_path: {"format": "json"}
-                }
     else:
         logger.warning("You have not provided any headers! Your scrape requests may get blocked. Please see README for "
                        "information.")

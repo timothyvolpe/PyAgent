@@ -154,14 +154,17 @@ class ZillowSpiderWorker(scrapy.Spider):
                 # We can safely assume that zillow properties are listed with total rent, not rent per room.
                 # So we need to compensate
                 if price and bed_count:
-                    price = price / bed_count
+                    price = price
                 elif rent and bed_count:
-                    rent = rent / bed_count
+                    rent = rent
 
                 yield {
                     "uid": BaseSpider.get_next_uid(),
                     "address": address,
-                    "neighborhood": None,
+                    "neighborhood": location["neighborhood"],
+                    "suburb": location["suburb"],
+                    "city": location["city"],
+                    "state": location["state"],
                     "rent": price if price else rent,
                     "deposit": None,
                     "sqft": sqft,

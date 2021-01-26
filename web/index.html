@@ -21,17 +21,17 @@
                 <ul class="nav flex-column">
                     <li class="nav-item">
                         <a id="all-data-link" class="nav-link active" href="#">
-                        All Data (current)
+                            <span class="badge badge-pill bg-primary text-light list-counter">0</span> <span class="nav-link-text">All Data</span><span class='current-tag'>(current)</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a id="favorites-link" class="nav-link" href="#">
-                        Favorites
+                            <span class="badge badge-pill bg-primary text-light list-counter">0</span> <span class="nav-link-text">Favorites</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a id="rejections-link" class="nav-link" href="#">
-                        Rejected
+                            <span class="badge badge-pill bg-primary text-light list-counter">0</span> <span class="nav-link-text">Rejected</span>
                         </a>
                     </li>
                 </ul>
@@ -41,6 +41,14 @@
                 </h6>
 
                 <ul id="source-column" class="nav flex-column">
+                </ul>
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                    <span>Other</span>
+                </h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a id="options-link" class="nav-link" href="#">Options </a>
+                    </li>
                 </ul>
             </div>
         </nav>
@@ -65,6 +73,32 @@
                     <tbody id="address-table-body">
                     </tbody>
                 </table>
+            </div>
+            <div id="options-table">
+                <h5>Filters</h5>
+                <span>Show entries that fit one of the following:</span>
+                <hr/>
+                <div class="filter-selectable" id="neighborhood-filters">
+                    <h6>Neighborhood</h6>
+                    <select class="custom-select d-block" required="">
+                    </select>
+                    <button type="button" class="add-filter-btn btn btn-primary btn-sm">Add Filter</button>
+                    <div class="choices mt-1"></div>
+                </div>
+                <div class="filter-selectable" id="suburb-filters">
+                    <h6>Suburb</h6>
+                    <select class="custom-select d-block" required="">
+                    </select>
+                    <button type="button" class="add-filter-btn btn btn-primary btn-sm">Add Filter</button>
+                    <div class="choices mt-1"></div>
+                </div>
+                <div class="filter-selectable" id="city-filters">
+                    <h6>City</h6>
+                    <select class="custom-select d-block" required="">
+                    </select>
+                    <button type="button" class="add-filter-btn btn btn-primary btn-sm">Add Filter</button>
+                    <div class="choices mt-1"></div>
+                </div>
             </div>
         </main>
     </body>

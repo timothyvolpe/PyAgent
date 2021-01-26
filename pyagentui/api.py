@@ -39,8 +39,16 @@ class WebAPI:
         self._webview_window = None
         self._page_ready = False
 
+        self._loaded_data = {}
         self._favorites = {}
         self._rejections = {}
+
+        # Load the data used by the webpage
+        try:
+            with open(self._char_file, "r") as json_file:
+                self._loaded_data = json.load(json_file)
+        except json.JSONDecodeError as e:
+            logger.error("Failed to json file: {0}".format(e))
 
         # Load lists if exists
         filename = WEB_DATA_DIR + "/" + LIST_FILE
@@ -113,6 +121,15 @@ class WebAPI:
 
         return True
 
+    def get_filter_choices(self, filter_field):
+        filter_choices = []
+        for key, value in self._loaded_data.items():
+            option = value["housing_data"][filter_field]
+            if option not in filter_choices and option:
+                filter_choices.append(option)
+        # TODO: Add lists
+        return filter_choices
+
     def add_to_favorites(self, hash_val, data) -> bool:
         """
         Adds a property to the favorite lists
@@ -178,6 +195,20 @@ class WebAPI:
         :return: Rejections list
         """
         return self._rejections
+
+    def get_favorites_count(self) -> int:
+        """
+        Gets the favorites list count
+        :return: Favorites list count
+        """
+        return len(self._favorites)
+
+    def get_rejections_count(self) -> int:
+        """
+        Gets the rejections list count
+        :return: Rejections list count
+        """
+        return len(self._rejections)
 
     @property
     def window(self):
