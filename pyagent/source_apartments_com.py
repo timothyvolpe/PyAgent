@@ -24,6 +24,7 @@ import geopy.geocoders as gc
 import time
 from .cache import LocationCache
 from .spider import ScrapySpider, BaseSpider
+from .addresses import AddressLookup
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         self._locations = []
         self._addresses = []
         self._apartment_index = 0
-        self._last_nom_reqest = 0
 
         self.handle_httpstatus_list = [400]
 
@@ -148,20 +148,23 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                     baths_str = baths_val
 
             location = self._locations[self._apartment_index]
-            address = self._addresses[self._apartment_index]
+            address = AddressLookup.construct_address(location)
             additional_tags = self._additional_tags[self._apartment_index]
 
             yield {
                 "uid": BaseSpider.get_next_uid(),
                 "address": address,
-                "neighborhood": property_neighborhood,
+                "neighborhood": location["neighborhood"],
+                "suburb": location["suburb"],
+                "city": location["city"],
+                "state": location["state"],
                 "rent": rent_str,
                 "deposit": deposit_str,
                 "sqft": sqft_str,
                 "beds": beds_str,
                 "baths_str": baths_str,
                 "unit": unit_str,
-                "coordinates": location,
+                "coordinates": (location["lat"], location["long"]),
                 "additional": additional_tags,
                 "link": response.request.url,
                 "source": "apartments.com"
@@ -218,31 +221,16 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
                 addr_title = apt_placard.css(addr_sub_selector).extract_first()
 
             # Check if address is in cache
-            location = LocationCache.get_location(addr_title)
-            # Make sure address is valid
-            if location is None and not LocationCache.entry_present(addr_title):
-                time_since_last = (time.time() - self._last_nom_reqest)
-                if time_since_last < BaseSpider.NOMINATIM_REQUEST_DELAY:
-                    time.sleep(BaseSpider.NOMINATIM_REQUEST_DELAY - time_since_last)
-                try:
-                    geolocator = gc.Nominatim(user_agent="pyagent")
-                    location_obj = geolocator.geocode(addr_title)
-                except geopy.exc.ConfigurationError as e:
-                    location_obj = None
-                self._last_nom_reqest = time.time()
-                if location_obj is None:
-                    logger.error("Could not get geospatial coordinates of address '{0}', "
-                                 "see source at {1}".format(addr_title, response.request.url))
-                    LocationCache.add_to_cache(addr_title, None)
-                    continue
-                location = (location_obj.latitude, location_obj.longitude)
-                LocationCache.add_to_cache(addr_title, location)
+            location = AddressLookup.lookup_address(addr_title)
+            if location is None:
+                logger.warning("Skipping '{0}' due to invalid address".format(addr_title))
+                continue
 
             apartment_link = apt_placard.css(link_selector).extract_first()
             self._apartment_urls.append(apartment_link)
             self._additional_tags.append(additional_tags)
             self._locations.append(location)
-            self._addresses.append(addr_title)
+            self._addresses.append(location)
 
         # Go to next page if possible
         if page_current < page_count and DO_MULTIPLE_PAGES:
@@ -252,7 +240,10 @@ class ApartmentsComSpiderWorker(scrapy.Spider):
         # Start parsing individual apartments
         else:
             self._apartment_index = 0
-            next_page_url = self._apartment_urls[self._apartment_index]
-            request = scrapy.Request(url=next_page_url, callback=self.parse_apartment, meta={'dont_merge_cookies': True})
-            yield request
+            if self._apartment_urls:
+                next_page_url = self._apartment_urls[self._apartment_index]
+                request = scrapy.Request(url=next_page_url, callback=self.parse_apartment, meta={'dont_merge_cookies': True})
+                yield request
+            else:
+                logger.warning("No housing found on page")
 

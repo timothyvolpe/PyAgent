@@ -144,3 +144,17 @@ body {
 .train-silver {
     background-color: #7c878e !important;
 }
+
+.custom-select {
+    display:inline-block !important;
+    width:500px;
+}
+.add-filter-btn {
+    display:inline-block !important;
+    width:100px;
+    height:38px;
+}
+
+.filter-choice {
+    margin-right:3px;
+}

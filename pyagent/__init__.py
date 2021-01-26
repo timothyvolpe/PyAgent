@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Initialize default sources
 _source_list = [Source("apartments_com", "apartments.com", required_conf=["search_url"],
                        spider=ApartmentsComSpider()),
-                Source("craigslist_bos", "boston.craigslist.com", required_conf=["subdomain"],
+                Source("craigslist_bos", "boston.craigslist.com", required_conf=["subdomain", "search_url"],
                        spider=CraigslistSpider()),
                 Source("zillow", "zillow.com", required_conf=["search_url"],
                        spider=ZillowSpider())]

@@ -19,11 +19,16 @@
 import logging
 import os
 import json
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = "cache"
 LOCATION_CACHE = "location.json"
+LOCATION_CACHE_REVERSE = "location_reverse.json"
+
+import hashlib
+from base64 import b64encode
 
 
 class LocationCache:
@@ -31,7 +36,9 @@ class LocationCache:
     Stores address location data
     """
     location_data = None
+    location_reverse_data = None
     cache_path = CACHE_DIR + "\\" + LOCATION_CACHE
+    cache_path_rev = CACHE_DIR + "\\" + LOCATION_CACHE_REVERSE
 
     @staticmethod
     def init_cache() -> None:
@@ -40,7 +47,7 @@ class LocationCache:
         if not os.path.isdir(CACHE_DIR):
             os.mkdir(CACHE_DIR)
 
-        # Read the cache in memory
+        # Read the cache into memory
         if os.path.isfile(LocationCache.cache_path):
             try:
                 with open(LocationCache.cache_path) as json_file:
@@ -49,6 +56,15 @@ class LocationCache:
                 logger.critical("Failed to read cache from disk: {0}".format(e))
         else:
             LocationCache.location_data = {}
+        # Read reverse cache into memory
+        if os.path.isfile(LocationCache.cache_path_rev):
+            try:
+                with open(LocationCache.cache_path_rev) as json_file:
+                    LocationCache.location_reverse_data = json.load(json_file)
+            except OSError as e:
+                logger.critical("Failed to read cache from disk: {0}".format(e))
+        else:
+            LocationCache.location_reverse_data = {}
 
     @staticmethod
     def save_cache() -> None:
@@ -61,8 +77,26 @@ class LocationCache:
                 outfile.seek(0)
                 json.dump(LocationCache.location_data, outfile)
                 outfile.truncate()
+                logger.info("Saving location cache...")
+            with open(LocationCache.cache_path_rev, 'w') as outfile:
+                outfile.seek(0)
+                json.dump(LocationCache.location_reverse_data, outfile)
+                outfile.truncate()
+                logger.info("Saving location reverse cache...")
         except OSError as e:
             logger.critical("Failed to write cache to disk: {0}".format(e))
+
+    @staticmethod
+    def get_address(coords: list) -> Optional[dict]:
+        """
+        Retrieves an approximate address from the given set of coordinates
+        :param coords: Coordinates as 2 floats, [lat, long]
+        :return: Address dict if in cache, None otherwise
+        """
+        uid = hashlib.sha256(str(coords[0]).encode() + str(coords[1]).encode()).hexdigest()
+        if uid in LocationCache.location_reverse_data:
+            return LocationCache.location_reverse_data[uid]
+        return None
 
     @staticmethod
     def get_location(addr: str):
@@ -80,10 +114,19 @@ class LocationCache:
         """
         Checks if there is an entry in the cache for the given address
         :param addr: The address to look up
-        :returns: True if an entry was found, false if otherwise
+        :returns: True if an entry was found, False if otherwise
         """
         return addr in LocationCache.location_data
 
+    @staticmethod
+    def entry_present_reverse(coords: list) -> bool:
+        """
+         Checks if there is an entry in the cache for the given coords
+        :param coords: The coords to look up
+        :return: True if an entry was found, False if otherwise
+        """
+        uid = hashlib.sha256(str(coords[0]).encode() + str(coords[1]).encode()).hexdigest()
+        return uid in LocationCache.location_reverse_data
 
     @staticmethod
     def add_to_cache(addr: str, location: (float, float)) -> None:
@@ -94,3 +137,14 @@ class LocationCache:
         :return: Nothing
         """
         LocationCache.location_data[addr] = location
+
+    @staticmethod
+    def add_to_reverse_cache(coords: list, addr: str) -> None:
+        """
+        Adds coordinates to the cache
+        :param coords: The coordinates
+        :param addr: The address near the coordinates
+        :return: Nothing
+        """
+        uid = hashlib.sha256(str(coords[0]).encode() + str(coords[1]).encode()).hexdigest()
+        LocationCache.location_reverse_data[uid] = addr

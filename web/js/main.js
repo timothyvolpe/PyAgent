@@ -35,6 +35,7 @@ function showResponse(response) {
 }
 
 function postErrorAlert(message) {
+    console.log("ERROR: " + message)
     $("#master-error-alert").append("<p>" + message + "</p>");
     $("#master-error-alert").show();
 }
@@ -84,6 +85,7 @@ function addToList(is_fav, hash, row, data, is_back_to_old=false)
         delete removed_char_data[hash];
         $(row).replaceWith(new_row);
         setupRowButtons();
+        update_list_counts();
     });
     $(row).replaceWith(row_element);
 }
@@ -109,6 +111,7 @@ function setupRowButtons() {
                         addToList(is_fav, hash, row, data, true);
                         loaded_char_data[hash] = removed_char_data[hash];
                         delete removed_char_data[hash];
+                        update_list_counts();
                     }
                     else {
                         console.log("Cannot remove from favorites");
@@ -121,6 +124,7 @@ function setupRowButtons() {
                         addToList(is_fav, hash, row, data, true);
                         loaded_char_data[hash] = removed_char_data[hash];
                         delete removed_char_data[hash];
+                        update_list_counts();
                     }
                     else {
                         console.log("Cannot remove from rejections");
@@ -135,6 +139,7 @@ function setupRowButtons() {
                         addToList(is_fav, hash, row, data);
                         removed_char_data[hash] = loaded_char_data[hash];
                         delete loaded_char_data[hash];
+                        update_list_counts();
                     }
                     else {
                         console.log("Cannot add to favorites");
@@ -148,6 +153,7 @@ function setupRowButtons() {
                         addToList(is_fav, hash, row, data);
                         removed_char_data[hash] = loaded_char_data[hash];
                         delete loaded_char_data[hash];
+                        update_list_counts();
                     }
                     else {
                         console.log("Cannot add to favorites");
@@ -177,6 +183,29 @@ function populate_table(data, table_type, do_source_list=false) {
     {
         char_data = value.char_output;
         housing = value.housing_data;
+
+        // Check against filters
+        var passedFilters = false;
+        if(filter_lists["city-filters"].length == 0 && filter_lists["suburb-filters"].length == 0 && filter_lists["neighborhood-filters"].length == 0)
+            passedFilters = true;
+        else {
+            if(filter_lists["neighborhood-filters"].length > 0) {
+                if(filter_lists["neighborhood-filters"].indexOf(housing["neighborhood"]) != -1)
+                    passedFilters = true;
+            }
+            if(filter_lists["suburb-filters"].length > 0) {
+                if(filter_lists["suburb-filters"].indexOf(housing["suburb"]) != -1)
+                    passedFilters = true;
+            }
+            if(filter_lists["city-filters"].length > 0) {
+                if(filter_lists["city-filters"].indexOf(housing["city"]) != -1)
+                    passedFilters = true;
+            }
+        }
+
+        if(!passedFilters)
+            continue;
+
         if(k in orphaned_char_data)
             orphaned = true;
         else
@@ -202,7 +231,9 @@ function populate_table(data, table_type, do_source_list=false) {
             source_list.forEach(function(element) {
                 const list_item = `
                     <li class="nav-item">
-                        <a class="nav-link source-link" href="#">${element}</a>
+                        <a class="nav-link source-link" href="#">
+                            <span class="badge badge-pill bg-primary text-light list-counter">0</span> ${element}
+                        </a>
                     </li>
                 `;
                 $("#source-column").append(list_item);
@@ -210,6 +241,9 @@ function populate_table(data, table_type, do_source_list=false) {
 
             $("a.source-link").click(function() {
                 var source = $(this).text();
+                clearListActive();
+                $(this).addClass("active");
+                $(this).append("<span class='current-tag'>(current)</span>");
                 console.log("Switching to " + source);
                 combined_source_data = {};
                 for (const [k, value] of Object.entries(loaded_char_data))
@@ -228,13 +262,16 @@ function populate_table(data, table_type, do_source_list=false) {
 
 function switch_to_all() {
     populate_table(loaded_char_data, TableType.TableAll, true);
+    update_list_counts();
     setupRowButtons();
 }
+
 function switch_to_favorites() {
     // Get favorites data
     pywebview.api.get_favorites().then(function(response) {
         if(response) {
             populate_table(response, TableType.TableFavorites);
+            update_list_counts();
             setupRowButtons();
         }
     }).catch(showResponse);
@@ -244,19 +281,50 @@ function switch_to_rejections() {
     pywebview.api.get_rejections().then(function(response) {
         if(response) {
             populate_table(response, TableType.TableRejections);
+            update_list_counts();
             setupRowButtons();
         }
     }).catch(showResponse);
 }
 
 window.addEventListener('pywebviewready', () => {
-    pywebview.api.ready().then(showResponse);
+    pywebview.api.ready().then(function(response) {
+        if(!response)
+            postErrorAlert("Python API failed to initialize");
+
+        // Add options filters
+        pywebview.api.get_filter_choices("neighborhood").then(function(response) {
+            for (var i = 0; i < response.length; i++) {
+                $("#neighborhood-filters > select").append("<option>" + response[i] + "</option>")
+            }
+            sortSelectOptions($("#neighborhood-filters > select > option"));
+        });
+        pywebview.api.get_filter_choices("suburb").then(function(response) {
+            for (var i = 0; i < response.length; i++) {
+                $("#suburb-filters > select").append("<option>" + response[i] + "</option>")
+            }
+            sortSelectOptions($("#suburb-filters > select > option"));
+        });
+        pywebview.api.get_filter_choices("city").then(function(response) {
+            for (var i = 0; i < response.length; i++) {
+                $("#city-filters > select").append("<option>" + response[i] + "</option>")
+            }
+            sortSelectOptions($("#city-filters > select > option"));
+        });
+    }).catch(showResponse);
 });
+
+let filter_lists = {
+    "neighborhood-filters": [],
+    "suburb-filters": [],
+    "city-filters": []
+};
 
 window.onload = function(e) {
     // Load the latest scrape data
     $("#master-error-alert").hide();
     $("#address-table").hide();
+    $("#options-table").hide();
 
     $("#address-table > thead > tr > th.sortable-col > a").click(function() {
         let sort_column_idx = $("#address-table > thead > tr > th.sortable-col").toArray().indexOf($(this).parent()[0]);
@@ -303,26 +371,85 @@ window.onload = function(e) {
 
     $("#all-data-link").click(function() {
         console.log("Switching to All Data");
-        $("#all-data-link").text("All Data (current)").addClass("active");
-        $("#favorites-link").text("Favorites").removeClass("active");
-        $("#rejections-link").text("Rejections").removeClass("active");
+        clearListActive();
+        $(this).addClass("active");
+        $(this).append("<span class='current-tag'>(current)</span>");
         switch_to_all();
     });
     $("#favorites-link").click(function() {
         console.log("Switching to Favorites");
-        $("#all-data-link").text("All Data").removeClass("active");
-        $("#favorites-link").text("Favorites (current)").addClass("active");
-        $("#rejections-link").text("Rejections").removeClass("active");
+        clearListActive();
+        $(this).addClass("active");
+        $(this).append("<span class='current-tag'>(current)</span>");
         switch_to_favorites();
     });
     $("#rejections-link").click(function() {
         console.log("Switching to Rejections");
-        $("#all-data-link").text("All Data").removeClass("active");
-        $("#favorites-link").text("Favorites").removeClass("active");
-        $("#rejections-link").text("Rejections (current)").addClass("active");
+        clearListActive();
+        $(this).addClass("active");
+        $(this).append("<span class='current-tag'>(current)</span>");
         switch_to_rejections();
     });
+
+    $("#options-link").click(function() {
+        console.log("Switching to Options");
+        clearListActive();
+        $(this).addClass("active");
+        $(this).append("<span class='current-tag'>(current)</span>");
+        $("#address-table").hide();
+        $("#options-table").show();
+    });
+
+    $(".add-filter-btn").click(function() {
+        var parentDiv = $(this).closest("div.filter-selectable");
+        var selected = $(parentDiv).find(".custom-select").find(":selected").text();
+        if(selected == "Choose...")
+            return;
+        var newFilterItem = $("<span class='filter-choice btn btn-danger'>" + selected + " X</span>");
+        $(parentDiv).find("div.choices").append(newFilterItem);
+        $(parentDiv).find(".custom-select > option:contains(" + selected + ")").remove()
+
+        var filter_name = $(parentDiv).attr("id");
+        filter_lists[filter_name].push(selected);
+
+        $(newFilterItem).click(function() {
+            var select = $(this).closest("div.filter-selectable").find(".custom-select");
+            var selectedOption = $(select).find(":selected").text();
+            $(select).append("<option>" + selected + "</option");
+            $(this).remove();
+            sortSelectOptions($(select).find("option"));
+
+            filter_lists[filter_name].splice(filter_lists[filter_name].indexOf(selectedOption), 1);
+        });
+    });
 };
+
+function sortSelectOptions(select)
+{
+    var arr = select.map(function(_, o) { return { t: $(o).text(), v: o.value }; }).get();
+    arr.sort(function(o1, o2) { return o1.t > o2.t ? 1 : o1.t < o2.t ? -1 : 0; });
+    select.each(function(i, o) {
+        o.value = arr[i].v;
+        $(o).text(arr[i].t);
+    });
+}
+
+function clearListActive()
+{
+    $(".sidebar-sticky > ul > li > a.nav-link").removeClass("active");
+    $(".sidebar-sticky > ul > li > a.nav-link > span.current-tag").remove();
+}
+
+function update_list_counts()
+{
+    $("#all-data-link > .list-counter").text(Object.keys(loaded_char_data).length);
+    pywebview.api.get_favorites_count().then(function(response) {
+        $("#favorites-link > .list-counter").text(response);
+    }).catch(showResponse);
+    pywebview.api.get_rejections_count().then(function(response) {
+        $("#rejections-link > .list-counter").text(response);
+    }).catch(showResponse);
+}
 
 function create_table_row(hash, char_data, housing, table_type=TableType.TableAll, orphaned=false)
 {
